@@ -195,6 +195,30 @@ def test_crash_before_state_save_refetches_page_but_loses_nothing(tmp_path, pape
     assert s["lines"] == 150 + 130                              # page 3 fetched twice -> duplicates only
 
 
+def test_state_never_claims_more_than_the_file_holds(tmp_path, papers, monkeypatch):
+    """Ordering rule: records first, state second. Checked at EVERY state save."""
+    import paperlens.harvest.arxiv_oai as mod
+    real_save = mod._save_state
+    out = str(tmp_path / "out.jsonl")
+    seen = []
+
+    def checking_save(path, state):
+        try:
+            with open(out, "r", encoding="utf-8") as f:
+                lines = sum(1 for _ in f)
+        except FileNotFoundError:
+            lines = 0
+        seen.append((state["lines_written"], lines))
+        assert lines >= state["lines_written"], "state is ahead of the data file!"
+        real_save(path, state)
+
+    monkeypatch.setattr(mod, "_save_state", checking_save)
+    with FakeOAIServer(papers, page_size=50) as srv:
+        client, _, st = setup(tmp_path, srv, FakeTime())
+        harvest(client, out_path=out, state_path=st, log=lambda *_: None)
+    assert len(seen) == 5 and seen[-1] == (N, N)
+
+
 def test_state_for_other_set_is_refused(tmp_path, papers):
     with FakeOAIServer(papers) as srv:
         client, out, st = setup(tmp_path, srv, FakeTime())
