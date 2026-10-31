@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paperlens"
+version = "0.0.1"
+description = "Crash-safe hybrid (keyword + semantic) search engine for arXiv cs.* papers"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+# Added in later phases (not needed for Phase 0):
+# native = ["scikit-build-core", "pybind11"]
+# semantic = ["sentence-transformers", "numpy"]
+# api = ["fastapi", "uvicorn"]
+
+[project.scripts]
+paperlens = "paperlens.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]
