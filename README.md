@@ -11,6 +11,15 @@ multi-process pipeline. KLE Technological University, CSE mini project
 [OWNERS.md](OWNERS.md) for who owns what, and
 [docs/TRACEABILITY.md](docs/TRACEABILITY.md) for requirement -> code -> test.
 
+## AI-assistance disclosure
+
+The Phase 0 code, tests and docs were written by Claude (an AI assistant from Anthropic)
+at the team's request, in a sandbox, and committed there under Arun's git identity for
+convenience. Check your college's policy on declaring AI assistance and declare it. From now
+on each member should make their own commits for the modules they own, and **must read, run
+and be able to explain** those modules at the review. The tests were run by the assistant;
+the team should re-run them.
+
 ## Setup
 
 Needs Python 3.10 or newer. Phase 0 has **no third-party runtime dependencies** (pytest
