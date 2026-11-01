@@ -63,6 +63,71 @@ def _cmd_stats(a) -> int:
     return 0
 
 
+def _cmd_index(a) -> int:
+    """JSONL -> index. Commits every --batch papers; flushes at the end."""
+    from collections import Counter
+    from .contracts.paper import read_jsonl
+    from .store.index import IndexStore
+    from .store.lock import IndexLocked
+    outcomes = Counter()
+    try:
+        st = IndexStore(a.index, flush_docs=a.flush_docs)
+    except IndexLocked as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    with st:
+        n = 0
+        for p in read_jsonl(a.input, skip_bad=a.skip_bad):
+            outcomes[st.put(p).outcome] += 1
+            n += 1
+            if n % a.batch == 0:
+                st.commit()
+        st.commit()
+        st.flush()
+        print("outcomes:", dict(outcomes))
+        print("index   :", {k: v for k, v in st.stats().items() if k != "recovery"})
+    return 0
+
+
+def _cmd_search(a) -> int:
+    from .store.index import IndexStore
+    from .store.lock import IndexLocked
+    try:
+        st = IndexStore(a.index)
+    except IndexLocked as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    with st:
+        hits = st.search(" ".join(a.query), k=a.k)
+        if not hits:
+            print("no results")
+        for rank, h in enumerate(hits, 1):
+            p = st.get(h.arxiv_id)
+            print(f"{rank:2d}. {h.score:7.3f}  {h.arxiv_id}  {p.title[:90]}")
+            print(f"            {', '.join(p.categories)}  {p.datestamp}")
+    return 0
+
+
+def _cmd_index_stats(a) -> int:
+    from .store.index import IndexStore
+    with IndexStore(a.index) as st:
+        for k, v in st.stats().items():
+            print(f"{k:22s} {v}")
+    return 0
+
+
+def _cmd_fsck(a) -> int:
+    from .store.fsck import fsck
+    rep = fsck(a.index)
+    for w in rep.warnings:
+        print("warning:", w)
+    for e in rep.errors:
+        print("ERROR  :", e)
+    print("info   :", rep.info)
+    print("RESULT :", "OK" if rep.ok else "DAMAGED")
+    return 0 if rep.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="paperlens")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -88,6 +153,28 @@ def build_parser() -> argparse.ArgumentParser:
     t = sub.add_parser("stats", help="summarise a JSONL file of papers")
     t.add_argument("path")
     t.set_defaults(fn=_cmd_stats)
+
+    i = sub.add_parser("index", help="build/extend a persistent index from a JSONL file")
+    i.add_argument("--index", required=True, help="index directory (created if missing)")
+    i.add_argument("--input", required=True, help="JSONL of papers (harvest or synth output)")
+    i.add_argument("--batch", type=int, default=64, help="papers per commit (group commit)")
+    i.add_argument("--flush-docs", type=int, default=1000, help="buffer size that triggers a segment")
+    i.add_argument("--skip-bad", action="store_true", help="skip unparseable lines instead of stopping")
+    i.set_defaults(fn=_cmd_index)
+
+    s = sub.add_parser("search", help="BM25 keyword search")
+    s.add_argument("--index", required=True)
+    s.add_argument("-k", type=int, default=10)
+    s.add_argument("query", nargs="+")
+    s.set_defaults(fn=_cmd_search)
+
+    x = sub.add_parser("index-stats", help="show index statistics (runs recovery on open)")
+    x.add_argument("--index", required=True)
+    x.set_defaults(fn=_cmd_index_stats)
+
+    f = sub.add_parser("fsck", help="check an index for damage (read-only)")
+    f.add_argument("--index", required=True)
+    f.set_defaults(fn=_cmd_fsck)
     return ap
 
 

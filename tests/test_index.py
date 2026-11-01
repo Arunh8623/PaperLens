@@ -135,6 +135,27 @@ def test_delete_in_buffer_and_in_segment_and_reput(tmp_path):
         assert [h.key for h in st.search("graph")] == ["t.2@2024-01-01"]
 
 
+def test_document_and_tombstone_for_the_same_key_in_one_segment(tmp_path):
+    """K lives in seg-1; it is deleted and put back BEFORE the next flush, so seg-2
+    holds both the new copy of K and a tombstone for K. The tombstone must kill
+    only the OLD copy (older segments), never the new one beside it."""
+    ix = tmp_path / "ix"
+    model = Model()
+    with IndexStore(ix) as st:
+        p = mk(1, abstract="unicorn")
+        st.put(p); model.put(p); st.flush(); model.flush()
+        assert st.delete("t.1") and model.delete("t.1")
+        assert st.put(p).outcome == "insert" and model.put(p) == "insert"
+        assert st.stats()["pending_tombstones"] == 1
+        st.flush(); model.flush()
+        assert [h.key for h in st.search("unicorn")] == ["t.1@2024-01-01"]
+        assert_same(st, model, ["unicorn", "graph"])
+    with IndexStore(ix) as st:                                  # the tombstone logic is re-derived on open
+        assert [h.key for h in st.search("unicorn")] == ["t.1@2024-01-01"]
+        assert st.get("t.1") == mk(1, abstract="unicorn")
+        assert_same(st, model, ["unicorn", "graph"])
+
+
 def test_delete_replayed_from_diary(tmp_path):
     ix = tmp_path / "ix"
     with IndexStore(ix) as st:
