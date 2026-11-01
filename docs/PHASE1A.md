@@ -60,8 +60,8 @@ Survivors, both expected:
 
 The check found one real gap in my own tests (M09: a document and a tombstone for the same key
 in one segment), fixed with `test_document_and_tombstone_for_the_same_key_in_one_segment`, and
-confirmed killed afterwards. Four test bugs of mine were found and fixed along the way (two
-wrong hard-coded counts, an over-strict "nothing acked" guard, and a SIGKILL test whose kills
+confirmed killed afterwards. Five test bugs of mine were found and fixed along the way (three
+wrong expected counts, an over-strict "nothing acked" guard, and a SIGKILL test whose kills
 landed in a no-op phase). None were store bugs.
 
 ## First profile (`docs/evidence/profile-20261101-2ac9219.json`) - READ THE WARNING
