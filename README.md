@@ -13,12 +13,13 @@ multi-process pipeline. KLE Technological University, CSE mini project
 
 ## AI-assistance disclosure
 
-The Phase 0 code, tests and docs were written by Claude (an AI assistant from Anthropic)
-at the team's request, in a sandbox, and committed there under Arun's git identity for
-convenience. Check your college's policy on declaring AI assistance and declare it. From now
-on each member should make their own commits for the modules they own, and **must read, run
-and be able to explain** those modules at the review. The tests were run by the assistant;
-the team should re-run them.
+The code, tests and docs in this repository were written by Claude (an AI assistant from
+Anthropic) at Arun's request, in a sandbox, and committed under Arun's git identity for
+convenience. Commits from 2026-11-01 onward carry a `Co-Authored-By: Claude` trailer; the
+earlier Phase 0 commits (10 of them) do not, so this paragraph is the record for those. Check your college's policy
+on declaring AI assistance and declare it. Whoever presents the project must read, run and be able
+to explain the code. The tests were run by the assistant on Linux; re-run them on your own machine
+(see "Check your Windows machine").
 
 ## Setup
 
@@ -43,6 +44,20 @@ python -m pip install -U pip
 python -m pip install -e ".[dev]"
 python -m pytest
 ```
+
+## Check your Windows machine (please do this first)
+
+The code was developed and tested on Linux. Windows differs in exactly the places crash-safety
+depends on (renaming folders that hold open files, memory-mapped files, locking, newlines). After
+the setup above, run one command and send back the report it writes:
+
+```powershell
+python scripts\windows_check.py
+```
+
+It runs small probes of how your filesystem behaves, then the whole test suite, and writes
+`windows-check-report.txt`. Tests that use `kill -9` are skipped on Windows by design; the crash
+tests that exit the process at named steps do run.
 
 The C++ extension is **not part of Phase 0**. It arrives in Phase 1b, behind a pure-Python
 fallback, with exact Visual Studio Build Tools / Linux compiler steps added here then.

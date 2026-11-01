@@ -294,4 +294,4 @@ def test_real_time_spacing_measured_by_the_server(tmp_path):
         times = [t for t, _ in srv.log]
     assert len(times) == 3
     gaps = [b - a for a, b in zip(times, times[1:])]
-    assert min(gaps) >= interval - 0.02, gaps       # measured at the SERVER, not by our own books
+    assert min(gaps) >= interval - 0.06, gaps       # measured at the SERVER; 60 ms slack for Windows' ~15 ms clock tick

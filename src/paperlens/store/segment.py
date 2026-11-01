@@ -39,7 +39,7 @@ from typing import Iterable
 
 from ..contracts.paper import PaperRecord
 from ..text.varint import decode_postings, encode_postings
-from .fsutil import fsync_dir, write_file_durable
+from .fsutil import fsync_dir, retry_fs, write_file_durable
 
 FORMAT = 1
 TOKENIZER_VERSION = 1          # bump when text/tokenizer.py changes behaviour (CONTRACTS Q2)
@@ -118,7 +118,7 @@ def write_segment_tmp(seg_root: str, name: str, docs, tombstones) -> str:
     The caller renames it to its final name (the publish step)."""
     tmp = os.path.join(seg_root, ".tmp-" + name)
     if os.path.exists(tmp):
-        shutil.rmtree(tmp)
+        retry_fs(shutil.rmtree, tmp)
     os.makedirs(tmp)
     files = build_files(docs, tombstones)
     for fname, data in files.items():
@@ -139,7 +139,7 @@ def write_segment_tmp(seg_root: str, name: str, docs, tombstones) -> str:
 def publish_segment(seg_root: str, tmp: str, name: str) -> str:
     """Atomically make the segment visible: rename tmp -> final, fsync parent."""
     final = os.path.join(seg_root, name)
-    os.rename(tmp, final)
+    retry_fs(os.rename, tmp, final)
     fsync_dir(seg_root)
     return final
 

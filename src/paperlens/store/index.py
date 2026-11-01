@@ -49,7 +49,7 @@ from ..contracts.paper import PaperRecord, decide, split_key
 from ..text.tokenizer import paper_text, term_freqs, tokenize
 from .crashpoints import crashpoint
 from .diary import DiaryWriter, list_wals, recover_tail, scan_file, wal_name
-from .fsutil import fsync_dir
+from .fsutil import fsync_dir, retry_fs
 from .lock import DirLock
 from .manifest import Manifest, ManifestError, read_manifest, write_manifest
 from .segment import (Segment, SegmentError, publish_segment, segment_name,
@@ -119,14 +119,14 @@ class IndexStore:
             raise IndexCorrupt(str(e)) from e
         stale = os.path.join(self.path, "MANIFEST.tmp")
         if os.path.exists(stale):
-            os.remove(stale)
+            retry_fs(os.remove, stale)
         listed = set(self.manifest.segments)
         for name in sorted(os.listdir(self.seg_root)):
             if name.startswith(".tmp-"):
-                shutil.rmtree(os.path.join(self.seg_root, name))
+                retry_fs(shutil.rmtree, os.path.join(self.seg_root, name))
                 stats["removed_tmp"] += 1
             elif name.startswith("seg-") and name not in listed:
-                shutil.rmtree(os.path.join(self.seg_root, name))
+                retry_fs(shutil.rmtree, os.path.join(self.seg_root, name))
                 stats["removed_unlisted"] += 1
         fsync_dir(self.seg_root)
         for name in self.manifest.segments:
@@ -197,7 +197,7 @@ class IndexStore:
             active = os.path.join(self.wal_dir, wal_name(self.seq + 1))
         for _first, path in wals:
             if path != active and max_seq_in[path] <= flushed:
-                os.remove(path)
+                retry_fs(os.remove, path)
                 stats["old_wals_removed"] += 1
         self._writer = DiaryWriter(active)
         fsync_dir(self.wal_dir)
@@ -298,7 +298,7 @@ class IndexStore:
         self._writer = DiaryWriter(new_path)
         for _first, path in list_wals(self.wal_dir):
             if path != new_path:
-                os.remove(path)
+                retry_fs(os.remove, path)
         fsync_dir(self.wal_dir)
         crashpoint("flush_after_wal_delete")
         return name

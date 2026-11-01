@@ -32,13 +32,13 @@ Test names are in `tests/`. Last updated: Phase 0.
 | NFR6 | hybrid nDCG@10 >= better of keyword/vector on SciFact + SCIDOCS | E3 | - | planned |
 | NFR7 | codes <= 1/8 of float32, recall@10 >= 95% of exact | E3 + E2 | - | planned (Phase 3) |
 | NFR8 | >= 3 s between arXiv requests, 0 calls over OpenAlex budget | E1 | spacing proven with a virtual clock **and** measured at the server with a real clock (`test_real_time_spacing_measured_by_the_server`); the CLI refuses < 3 s | **partial**: single process only; all-process limiter = Phase 2; OpenAlex budget = Phase 4 |
-| NFR9 | Windows + Linux, no GPU/paid service, one-command results | all | tested on Linux, Python 3.10/3.11/3.12/3.13; **Windows untested** | **partial** |
+| NFR9 | Windows + Linux, no GPU/paid service, one-command results | all | tested on Linux, Python 3.10/3.11/3.12/3.13; Windows hardening written (`retry_fs`, timing slack) and `scripts/windows_check.py` ready; **never run on Windows** | **partial** |
 
 ## Phase 0 deliverables (from the brief)
 
 | Item | Where | Status |
 |---|---|---|
-| repo layout + git | whole repo | built (dated commits, `Co-Authored-By` trailers disclose AI help) |
+| repo layout + git | whole repo | built (dated commits; AI help disclosed in README, trailers from 2026-11-01) |
 | contracts doc | `docs/CONTRACTS.md` | built; **awaiting 4 sign-offs** |
 | PaperRecord | `contracts/paper.py` | built + tested |
 | diary framing + torn-tail scan | `store/diary.py` | built + tested + mutation-checked |

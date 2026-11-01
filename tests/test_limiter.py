@@ -75,5 +75,5 @@ def test_threads_get_distinct_spaced_slots_and_do_not_block_each_other():
     slots = sorted(lim.history)
     assert all(b - a >= interval - 1e-9 for a, b in zip(slots, slots[1:]))
     assert len(set(slots)) == n
-    assert max(wake) >= (n - 1) * interval - 0.005       # nobody woke before its slot
+    assert max(wake) >= (n - 1) * interval - 0.03        # nobody woke before its slot (30 ms slack: Windows clock ticks ~15 ms)
     assert max(wake) < (n - 1) * interval + 1.0           # and nobody waited extra

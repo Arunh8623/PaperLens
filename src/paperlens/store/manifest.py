@@ -32,7 +32,7 @@ import zlib
 from dataclasses import dataclass, field, replace
 
 from .crashpoints import crashpoint  # noqa: F401  (flush uses it; kept for symmetry)
-from .fsutil import fsync_dir, write_file_durable
+from .fsutil import fsync_dir, retry_fs, write_file_durable
 
 MANIFEST_NAME = "MANIFEST"
 TMP_NAME = "MANIFEST.tmp"
@@ -112,5 +112,5 @@ def write_manifest(index_dir, m: Manifest) -> None:
     tmp = os.path.join(index_dir, TMP_NAME)
     final = os.path.join(index_dir, MANIFEST_NAME)
     write_file_durable(tmp, encode(m))      # steps 1-2
-    os.replace(tmp, final)                  # step 3 (atomic)
+    retry_fs(os.replace, tmp, final)        # step 3 (atomic; retried on Windows if briefly locked)
     fsync_dir(index_dir)                    # step 4

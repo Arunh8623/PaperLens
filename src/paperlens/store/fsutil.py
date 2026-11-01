@@ -41,3 +41,25 @@ def write_file_durable(path, data: bytes) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def retry_fs(fn, *args, attempts: int = 8, delay: float = 0.05, sleep=None,
+             on_windows: bool = os.name == "nt"):
+    """Call fn(*args); on Windows retry a few times if it raises PermissionError.
+
+    Why: on Windows, antivirus scanners and the search indexer can hold a file
+    open for a few milliseconds right after we wrote it. Renaming, replacing or
+    deleting it in that window fails with PermissionError although nothing is
+    wrong. Waiting a moment and retrying is the standard fix. On Linux/macOS
+    this never retries (a PermissionError there is a real problem).
+    Backoff: delay, 2*delay, 4*delay ... capped at 1 s per wait.
+    """
+    import time
+    sleep = sleep or time.sleep
+    for i in range(attempts):
+        try:
+            return fn(*args)
+        except PermissionError:
+            if not on_windows or i == attempts - 1:
+                raise
+            sleep(min(delay * (2 ** i), 1.0))

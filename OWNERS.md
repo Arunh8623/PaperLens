@@ -1,17 +1,23 @@
-# Engine ownership map
+# Engine map
 
-MAJOR engines are E1, E2, E3. Everything marked SUPPORTING is not a graded engine.
+MAJOR engines are E1, E2, E3. Anything marked SUPPORTING is not a graded engine.
 
-| Engine | Kind | Owner(s) | Modules (src/paperlens/...) |
-|---|---|---|---|
-| E1 OS Process & Ingestion | MAJOR | Arun Hadimani, Prajwal B (confirm split) | `pipeline/` (Phase 2) |
-| E1 harvester (arXiv/OpenAlex) | SUPPORTING | TO CONFIRM | `harvest/` |
-| E2 Persistent Hybrid Index | MAJOR | Aditya Gavimath | `store/` |
-| E3 Retrieval, keyword side | MAJOR | Kartik Hegde | `text/`, `eval/` |
-| E3 Retrieval, semantic + graph side | MAJOR | TO CONFIRM | `vectors/`, `graph/` (Phase 3-4) |
-| Shared contracts | shared | all four sign off | `contracts/` |
-| Pre-trained embedding models | SUPPORTING | - | (we do not train models) |
+The course split the work between four people on paper. In practice **Arun Hadimani builds and
+maintains everything** in this repository, with AI assistance (see the README disclosure; commits from 2026-11-01
+carry a `Co-Authored-By` trailer, the first 10 do not). This file records who is responsible for what in fact,
+so the evidence is honest: the git history shows who did the work.
 
-Owners are taken from the project brief, which listed them two different ways.
-Entries marked TO CONFIRM must be settled before Gate 0. Each owner must be able
-to explain their modules alone at the review.
+| Engine | Kind | Modules (src/paperlens/...) | Built by | Status |
+|---|---|---|---|---|
+| E1 OS Process & Ingestion | MAJOR | `pipeline/` | Arun (+ AI) | Phase 2, not started |
+| E1 harvester (arXiv/OpenAlex) | SUPPORTING | `harvest/` | Arun (+ AI) | arXiv built; OpenAlex Phase 4 |
+| E2 Persistent Hybrid Index | MAJOR | `store/` | Arun (+ AI) | keyword index built (Phase 1a); vectors/compaction later |
+| E3 Retrieval, keyword side | MAJOR | `text/`, `eval/` | Arun (+ AI) | BM25 + toy tokenizer built; eval Phase 1b |
+| E3 Retrieval, semantic + graph | MAJOR | `vectors/`, `graph/` | Arun (+ AI) | Phase 3-4, not started |
+| Shared contracts | shared | `contracts/` | Arun (+ AI) | built |
+| Pre-trained embedding models | SUPPORTING | - | - | we do not train models |
+
+Names on the course's paper split (from the brief, which listed them two different ways):
+Aditya Gavimath, Kartik Hegde, Prajwal B. If the guide asks each member to explain an engine at a
+review, the team has to decide among themselves who presents what; the "what and why" notes in
+`docs/PHASE*.md` are written so any engine can be explained by someone who has read them.
