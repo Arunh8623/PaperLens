@@ -1,0 +1,111 @@
+{
+ "recorded_utc": "2026-11-01T03:57:44Z",
+ "git_commit": "2ac9219",
+ "results": [
+  {
+   "id": "M01",
+   "status": "KILLED",
+   "what": "recovery does not replay diary puts",
+   "caught_by": "FAILED tests/test_crash.py::test_crash_at_every_write_step_loses_and_duplicates_nothing[plain-after_wal_write-",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M02",
+   "status": "KILLED",
+   "what": "recovery re-applies entries already inside a segment",
+   "caught_by": "FAILED tests/test_crash.py::test_crash_at_every_write_step_loses_and_duplicates_nothing[plain-flush_after_mani",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M03",
+   "status": "KILLED",
+   "what": "recovery keeps unlisted (orphan) segments",
+   "caught_by": "FAILED tests/test_crash.py::test_crash_at_every_write_step_loses_and_duplicates_nothing[plain-flush_after_segm",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M04",
+   "status": "KILLED",
+   "what": "recovery never cuts the torn diary tail",
+   "caught_by": "FAILED tests/test_crash.py::test_torn_diary_tail_is_cut_and_acknowledged_data_survives",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M05",
+   "status": "KILLED",
+   "what": "flush publishes the MANIFEST before the segment is renamed into place",
+   "caught_by": "FAILED tests/test_crash.py::test_crash_at_every_write_step_loses_and_duplicates_nothing[plain-flush_after_segm",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M06",
+   "status": "SURVIVED",
+   "what": "(control) equivalent rewrite of the op test",
+   "caught_by": "",
+   "expected_survivor_reason": "EQUIVALENT: behaves identically, a survivor here is correct"
+  },
+  {
+   "id": "M07",
+   "status": "SURVIVED",
+   "what": "commit() no longer calls fsync",
+   "caught_by": "",
+   "expected_survivor_reason": "process-kill tests cannot see a missing fsync: the OS still holds the bytes. Only power-loss tests on real hardware can."
+  },
+  {
+   "id": "M08",
+   "status": "KILLED",
+   "what": "idempotency rules disabled (duplicates/stale are stored)",
+   "caught_by": "FAILED tests/test_cli_index.py::test_index_search_stats_fsck_roundtrip - asse...",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M09",
+   "status": "KILLED",
+   "what": "a segment's tombstone also kills documents in the SAME segment",
+   "caught_by": "FAILED tests/test_index.py::test_document_and_tombstone_for_the_same_key_in_one_segment",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M10",
+   "status": "KILLED",
+   "what": "BM25 counts only live docs in N (instead of all physical docs)",
+   "caught_by": "FAILED tests/test_index.py::test_document_and_tombstone_for_the_same_key_in_one_segment",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M11",
+   "status": "KILLED",
+   "what": "BM25 b parameter wrong",
+   "caught_by": "FAILED tests/test_index.py::test_bm25_equals_brute_force_across_buffer_and_segments",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M12",
+   "status": "KILLED",
+   "what": "avgdl ignores the buffer",
+   "caught_by": "FAILED tests/test_index.py::test_put_commit_search_and_reopen - ZeroDivisionE...",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M13",
+   "status": "KILLED",
+   "what": "MANIFEST records last_flushed_seq one too low",
+   "caught_by": "FAILED tests/test_crash.py::test_crash_during_flush_leaves_expected_debris - ...",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M14",
+   "status": "KILLED",
+   "what": "fsck stops verifying file checksums",
+   "caught_by": "FAILED tests/test_cli_index.py::test_fsck_exit_code_on_damage - assert (1 == ...",
+   "expected_survivor_reason": null
+  },
+  {
+   "id": "M15",
+   "status": "KILLED",
+   "what": "writer lock is never taken",
+   "caught_by": "FAILED tests/test_cli_index.py::test_cli_reports_a_locked_index - AssertionEr...",
+   "expected_survivor_reason": null
+  }
+ ]
+}
