@@ -53,9 +53,13 @@ Record, little endian:
   short, has an absurd length (> 64 MiB), or fails its CRC; `recover_tail()` truncates
   there and fsyncs.
 * Open with `O_BINARY` on Windows or `0x0A` becomes `0x0D0A` and the log is corrupted.
-* **Payload `PLANNED` (Phase 1)**: UTF-8 JSON
+* **Payload `BUILT` (Phase 1)**: UTF-8 JSON
   `{"seq": int, "op": "put" | "delete", "key": str, "paper": {...} | null}`.
-  `seq` is positive, strictly increasing, assigned by the single writer.
+  `seq` is positive, strictly increasing, assigned by the single writer. Only ACCEPTED
+  operations are logged: a duplicate or stale `put` never reaches the diary. Term counts are
+  NOT logged; replay recomputes them with the tokenizer (so a tokenizer change needs a reindex, see Q2).
+* A diary file is deleted only after a MANIFEST with `last_flushed_seq >=` all its entries
+  is durable; the new diary file is created first, then the old ones removed.
 
 ## 3. MANIFEST `BUILT` (`store/manifest.py`)
 
@@ -70,39 +74,59 @@ Record, little endian:
 write `MANIFEST.tmp` -> fsync -> `os.replace` -> fsync directory. Missing file = new index.
 Bad checksum = `ManifestError` (we refuse to guess). A leftover `MANIFEST.tmp` is junk.
 
-## 4. Segment files `PLANNED` (Phase 1; vector files Phase 3)
+## 4. Segment files `BUILT` (`store/segment.py`; vector files Phase 3)
 
-Immutable directory `segments/seg-NNNNNN/`, built first as `segments/.tmp-seg-N/`, every
+Immutable directory `segments/seg-NNNNNN/`, built first as `segments/.tmp-seg-NNNNNN/`, every
 file fsynced, directory fsynced, renamed, parent fsynced, **then** listed in a new MANIFEST.
 
-| file | content |
+| file | content (exact format) |
 |---|---|
-| postings.bin | per term: varint doc-gaps + term frequencies |
-| terms.idx | sorted term -> offset, document frequency |
-| keys.txt | idempotency key per local doc id |
-| doclens.bin | token count per doc |
-| docs.bin + docs.off | stored papers + offsets |
-| deletes.json | tombstones from the batch |
-| meta.json | counts + crc32 of every file, **written last** |
+| postings.bin | per term (sorted): `df` pairs of varint(doc gap), varint(tf); first gap measured from -1 |
+| terms.idx | text lines `term<TAB>offset<TAB>df`, sorted by term (the byte length is implied by `df`: decode exactly `df` pairs) |
+| keys.txt | one idempotency key per line; line n = local doc id n |
+| doclens.bin | u32 little-endian token count per doc |
+| docs.bin + docs.off | canonical-JSON papers concatenated; u64 little-endian offsets, n+1 entries |
+| deletes.json | sorted list of keys killed by this batch; applies to **older** segments only |
+| meta.json | format, `tokenizer_version`, counts, size + crc32 of every file above; **written last** |
 | *(later)* vectors.q, vectors.f16, IVF file, zonemap, token vectors | Phase 3-6 |
 
-## 5. Recovery on every open `PLANNED` (Phase 1)
+Opening a segment checks every file size against meta.json; **fsck** also checks every CRC.
+A segment built with a different `tokenizer_version` is refused (answers Q2 for now).
 
-1. Read MANIFEST. 2. Delete `.tmp-*` and any `seg-*` not listed. 3. Replay diary entries
-with `seq > last_flushed_seq`. 4. Cut a torn diary tail at the first bad record. 5. fsync.
+## 5. Recovery on every open `BUILT` (`store/index.py`)
 
-Single writer: OS lock on `<index>/LOCK` (`fcntl.flock` / `msvcrt.locking`).
+1. Take the writer lock. 2. Read MANIFEST (bad checksum = refuse, `IndexCorrupt`). 3. Delete
+`MANIFEST.tmp`, `.tmp-*` and any `seg-*` not listed. 4. Open listed segments (a missing one is
+`IndexCorrupt`). 5. Rebuild live/dead state from keys + tombstones. 6. Replay diary entries with
+`seq > last_flushed_seq`; cut a torn tail only in the **newest** diary file (damage in an older
+one is `IndexCorrupt`). 7. Drop diary files whose entries are all flushed; fsync.
 
-## 6. Crash points (fault injection) `BUILT` mechanism, partly wired
+Single writer: OS lock on `<index>/LOCK` (`fcntl.flock` / `msvcrt.locking`) `BUILT`, Linux-tested only.
+
+Delete/replace semantics `BUILT`: killing a live document that sits in a segment writes its key
+to the `deletes.json` of the NEXT segment. A key may legitimately reappear (delete then re-put);
+the tombstone kills only copies in strictly older segments.
+
+BM25 `BUILT`: k1=1.2, b=0.75, `idf = ln(1 + (N - df + 0.5)/(df + 0.5))`. `N`, `df` and
+`avgdl` include deleted documents until compaction (Lucene behaviour); deleted documents are never
+returned. Duplicate query words count once. Ties break by key. Verified against an independent
+brute-force model to 1e-9.
+
+## 6. Crash points (fault injection) `BUILT`, all 6 wired
 
 `PAPERLENS_CRASH_AT=<name>` (+ optional `PAPERLENS_CRASH_AFTER=N`) makes the process
 `os._exit(77)` at that point, with no cleanup.
 
-| name | wired into code today? |
+| name | where |
 |---|---|
-| after_wal_write | yes (diary.put) |
-| after_wal_fsync | yes (diary.commit) |
-| flush_after_tmp_written, flush_after_segment_rename, flush_after_manifest, flush_after_wal_delete | **no**: flush does not exist until Phase 1 |
+| after_wal_write | `DiaryWriter.put` |
+| after_wal_fsync | `DiaryWriter.commit` |
+| flush_after_tmp_written | all segment files written + fsynced in `.tmp-seg-N` |
+| flush_after_segment_rename | `.tmp-seg-N` renamed to `seg-N` (not yet in MANIFEST) |
+| flush_after_manifest | new MANIFEST published |
+| flush_after_wal_delete | new diary started, old diary files deleted |
+
+Each test asserts the child really exited with code 77, so an unwired point fails the test.
 
 ## 7. Pipeline messages `PLANNED` (Phase 2, E1)
 
@@ -145,13 +169,20 @@ POSIX-only. Power-loss safety is **not** claimed anywhere until tested on real h
 | D4 | Compound tokens emit the whole word **and** its parts | queries for either form match |
 | D5 | Harvester rejects empty titles; `PaperRecord` itself does not | keeps the contract permissive, the parser strict |
 | D6 | The contact email for the User-Agent has **no default** | arXiv does not require it (their pages are silent); it is our policy, and it must be a real address |
+| D7 | Only accepted operations are written to the diary (duplicate/stale never are) | keeps the diary replay-deterministic and small |
+| D8 | A deleted key may be re-put (outcome `insert`) | after a delete there is no live version, so the idempotency rule has nothing to compare with |
+| D9 | Query words are de-duplicated before scoring | simplest well-defined behaviour; Lucene counts repeats |
+| D10 | `terms.idx` is a text file loaded into a dict at open | fine at our scale; an FST/block index is a possible later improvement, not a requirement |
+| D11 | `fsck` takes the writer lock | never reads a half-written state; reports "locked" instead of guessing |
 
 ## Open questions needing a team decision
 
 * **Q1 Deleted records.** OAI marks withdrawn papers `status="deleted"`. Today we count and
   skip them. Should they become `delete` ops (tombstones) in the index?
-* **Q2 Tokenizer version.** Changing the tokenizer invalidates an existing index. Propose:
-  store a `tokenizer_version` in each segment's `meta.json`. Needs E2 + E3 agreement.
+* **Q2 Tokenizer version.** Changing the tokenizer invalidates an existing index. **Built as
+  proposed**: `tokenizer_version` is in every `meta.json` and a mismatch is refused. Open: E3 must
+  bump `TOKENIZER_VERSION` in `store/segment.py` whenever `text/tokenizer.py` changes behaviour, and
+  we still need a `reindex` command (Phase 1 second half). Needs E2 + E3 agreement.
 * **Q3 Datestamp order.** The restart-after-expired-token rule assumes arXiv returns records in
   non-decreasing datestamp order. Unverified; the real run reports `out_of_order`.
 

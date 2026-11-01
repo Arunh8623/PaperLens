@@ -5,8 +5,8 @@ papers (arXiv `cs.*`), with a persistent on-disk index we design ourselves, fed 
 multi-process pipeline. KLE Technological University, CSE mini project
 ("Multi-Process Search Engine with Persistent Index"), guide Ms. Umadevi F M.
 
-**Status: Phase 0 (foundations) built. Everything else is planned.** See
-[docs/PHASE0.md](docs/PHASE0.md) for exactly what is and is not done,
+**Status: Phase 0 (foundations) and the first half of Phase 1 (keyword index on disk, Python reference) are built. Everything else is planned.** See
+[docs/PHASE0.md](docs/PHASE0.md) and [docs/PHASE1A.md](docs/PHASE1A.md) for exactly what is and is not done,
 [docs/CONTRACTS.md](docs/CONTRACTS.md) for the agreements between engines,
 [OWNERS.md](OWNERS.md) for who owns what, and
 [docs/TRACEABILITY.md](docs/TRACEABILITY.md) for requirement -> code -> test.
@@ -61,6 +61,20 @@ python -m paperlens synth --n 1000 --seed 1 --out data/synth.jsonl   # SYNTHETIC
 python -m paperlens stats data/synth.jsonl
 ```
 
+## Build and search a persistent index
+
+```
+python -m paperlens synth --n 2000 --seed 1 --out data/synth.jsonl
+python -m paperlens index --index data/ix --input data/synth.jsonl       # diary -> segments -> MANIFEST
+python -m paperlens search --index data/ix -k 5 fsync recovery           # BM25
+python -m paperlens index-stats --index data/ix
+python -m paperlens fsck --index data/ix                                 # read-only audit, exit 1 if damaged
+```
+
+Try the crash demo by hand (Linux/macOS): start an `index` of a big file, `kill -9` it, then run
+`fsck` (it will only warn about leftovers) and `index-stats` (recovery runs on open).
+Re-running `index` with the same file is safe: duplicates are ignored.
+
 ## Harvest real arXiv metadata (do this on your own machine)
 
 arXiv rules (checked 2026-10-31): 1 request per 3 s, one connection, all your machines
@@ -82,8 +96,9 @@ state file to the team: they are the evidence for Gate 0.
 ```
 src/paperlens/
   contracts/   PaperRecord, key rules, JSONL            (shared)
-  store/       diary, MANIFEST, crash points, fs utils  (E2)
-  text/        science-aware tokenizer                  (E3 keyword)
+  store/       diary, MANIFEST, segments, IndexStore, fsck, lock, crash points  (E2)
+  text/        science-aware tokenizer, varint postings codec   (E3 keyword)
+  testing/     helpers that crash-test child processes import
   harvest/     arXiv OAI-PMH harvester, limiter, fake server   (E1, supporting)
   synth.py     seeded synthetic data (plumbing tests only)
   cli.py       python -m paperlens ...

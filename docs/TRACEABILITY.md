@@ -10,13 +10,13 @@ Test names are in `tests/`. Last updated: Phase 0.
 |---|---|---|---|---|---|
 | FR1 | collect papers within source limits | E1 (supporting) | `harvest/arxiv_oai.py`, `harvest/limiter.py` | `test_harvest.py`, `test_limiter.py`, `test_cli.py` | **partial**: arXiv harvester built and tested against a local fake server; **real run on arXiv pending**; OpenAlex = Phase 4 |
 | FR2 | parallel fault-tolerant ingestion | E1 | `pipeline/` | - | planned (Phase 2) |
-| FR3 | durable index + crash recovery | E2 | `store/diary.py`, `store/manifest.py`, `store/crashpoints.py` | `test_diary.py`, `test_manifest.py` | **partial**: diary framing, torn-tail recovery, atomic MANIFEST. Segments, flush, replay: Phase 1 |
+| FR3 | durable index + crash recovery | E2 | `store/diary.py`, `manifest.py`, `segment.py`, `index.py`, `fsck.py`, `lock.py`, `crashpoints.py` | `test_diary.py`, `test_manifest.py`, `test_segment.py`, `test_index.py`, `test_crash.py`, `test_lock.py` | **built for process crashes** (all 6 crash points + random SIGKILL, Linux). **Not shown:** power-loss safety, Windows |
 | FR4 | background compaction | E2 | - | - | planned (Phase 5) |
-| FR5 | keyword search, BM25, science-aware tokenizer | E3 | `text/tokenizer.py` | `test_tokenizer.py` | **partial**: toy tokenizer only; postings + BM25 Phase 1 |
+| FR5 | keyword search, BM25, science-aware tokenizer | E3 | `text/tokenizer.py`, `text/varint.py`, `store/index.py` (`search`) | `test_tokenizer.py`, `test_varint.py`, `test_index.py` (vs `oracle.py`) | **partial**: BM25 over varint postings equals a brute-force model to 1e-9 on synthetic data; tokenizer is still the toy; **quality on real data / BEIR not measured** |
 | FR6 | semantic search, compressed vectors | E3 | - | - | planned (Phase 3) |
 | FR7 | hybrid RRF + category/year filters | E3 | - | - | planned (Phase 3) |
 | FR8 | citation rerank + near-duplicate removal | E3 | - | - | planned (Phase 4) |
-| FR9 | results with reasons: CLI + web | E3 | `cli.py` (Phase 0 commands only) | `test_cli.py` | planned (Phase 1 CLI search; Phase 7 web) |
+| FR9 | results with reasons: CLI + web | E3 | `cli.py` (`index`, `search`, `index-stats`, `fsck`) | `test_cli.py`, `test_cli_index.py` | **partial**: CLI search prints ranked results; **no plain-language "reasons" yet**; web = Phase 7 |
 | FR10 | one-command evaluation | E3 | - | - | planned (Phase 1+) |
 | FR11 | late interaction, key papers (challenge) | E3 | - | - | planned (Phase 6) |
 
@@ -24,7 +24,7 @@ Test names are in `tests/`. Last updated: Phase 0.
 
 | Req | Target | Engine | Evidence so far | Status |
 |---|---|---|---|---|
-| NFR1 | 0 lost / 0 duplicated acknowledged papers across kills at every write step | E2 | diary + MANIFEST crash tests only (2 of 6 crash points wired) | **partial** |
+| NFR1 | 0 lost / 0 duplicated acknowledged papers across kills at every write step | E2 | 6 of 6 crash points x 2 occurrences x {plain, messy} streams = 24 runs, + 2 random-SIGKILL runs (6 rounds each), each followed by fsck and a full re-send; mutation check kills 13/15 recovery/ranking mutants (see PHASE1A.md for the 2 expected survivors) | **built for process kills on Linux**; "writer kill" under the pipeline = Phase 2; power loss untested |
 | NFR2 | ingestion fault tolerance (readers killed every ~0.25 s, writer twice) | E1 | - | planned (Phase 2) |
 | NFR3 | >= 70% parallel efficiency at 4 readers | E1 | - (must be measured on a >= 4-core machine; our sandbox has 2) | planned |
 | NFR4 | p95 <= 500 ms at 50,000 papers | E3 | - | planned |
@@ -38,7 +38,7 @@ Test names are in `tests/`. Last updated: Phase 0.
 
 | Item | Where | Status |
 |---|---|---|
-| repo layout + git | whole repo | built (dated commits) |
+| repo layout + git | whole repo | built (dated commits, `Co-Authored-By` trailers disclose AI help) |
 | contracts doc | `docs/CONTRACTS.md` | built; **awaiting 4 sign-offs** |
 | PaperRecord | `contracts/paper.py` | built + tested |
 | diary framing + torn-tail scan | `store/diary.py` | built + tested + mutation-checked |
