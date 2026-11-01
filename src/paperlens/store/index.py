@@ -1,0 +1,389 @@
+"""IndexStore: diary + buffer + immutable segments + MANIFEST + recovery + BM25.
+
+What it does and why (plain language)
+-------------------------------------
+This is the engine's heart. Life of a paper:
+
+  put()    -> decide (new? duplicate? newer version? older?) -> write to the
+              diary -> add to the in-memory buffer
+  commit() -> fsync the diary. From here on the paper is "acknowledged": it
+              survives a crash. (A duplicate/stale paper is never logged.)
+  flush()  -> freeze the buffer into an immutable segment, publish it with an
+              atomic MANIFEST swap, then start a fresh diary.
+
+Opening an index ALWAYS runs recovery (so a crash needs no special handling):
+  1. take the single-writer lock          2. read MANIFEST (checksummed)
+  3. delete half-built (.tmp-*) and unlisted segments
+  4. open the listed segments             5. replay diary entries newer than the
+  MANIFEST's last_flushed_seq, cutting a torn tail at the first bad record.
+
+Flush order (each arrow is a crash-safe step; crash points in [brackets]):
+  write all files into .tmp-seg-N, fsync each + dir  [flush_after_tmp_written]
+  -> rename to seg-N, fsync parent                   [flush_after_segment_rename]
+  -> write new MANIFEST (atomic)                     [flush_after_manifest]
+  -> start new diary file, delete old ones           [flush_after_wal_delete]
+A crash at any arrow leaves a state recovery understands: before the MANIFEST
+swap the new segment is an unlisted orphan (deleted at next open, diary
+replays); after it the segment is live and old diary entries are skipped
+because seq <= last_flushed_seq.
+
+Deletes: a delete (or the replacement of an old version) kills the live copy.
+If the copy sits in a segment we cannot edit it, so the key is written to the
+`deletes.json` of the NEXT flushed segment, and applies to all OLDER segments.
+
+Ranking: BM25, k1=1.2, b=0.75, Lucene-style idf ln(1+(N-df+0.5)/(df+0.5)).
+LIKE LUCENE, N, df and avgdl still count deleted documents until compaction
+(Phase 5); deleted documents are never returned. Query terms are de-duplicated
+(a repeated query word does not count twice).
+"""
+from __future__ import annotations
+
+import heapq
+import json
+import math
+import os
+import shutil
+from typing import NamedTuple
+
+from ..contracts.paper import PaperRecord, decide, split_key
+from ..text.tokenizer import paper_text, term_freqs, tokenize
+from .crashpoints import crashpoint
+from .diary import DiaryWriter, list_wals, recover_tail, scan_file, wal_name
+from .fsutil import fsync_dir
+from .lock import DirLock
+from .manifest import Manifest, ManifestError, read_manifest, write_manifest
+from .segment import (Segment, SegmentError, publish_segment, segment_name,
+                      segment_number, write_segment_tmp)
+
+K1, B = 1.2, 0.75
+
+
+class IndexCorrupt(Exception):
+    """The index is damaged in a way recovery must not guess about."""
+
+
+class PutResult(NamedTuple):
+    outcome: str      # insert | replace | duplicate | stale
+    seq: int          # diary sequence number, 0 if nothing was logged
+
+
+class Hit(NamedTuple):
+    score: float
+    key: str
+    arxiv_id: str
+
+
+class _BufDoc(NamedTuple):
+    paper: PaperRecord
+    tf: dict
+    dl: int
+
+
+class IndexStore:
+    def __init__(self, path, flush_docs: int = 1000):
+        self.path = os.fspath(path)
+        self.flush_docs = flush_docs
+        self.seg_root = os.path.join(self.path, "segments")
+        self.wal_dir = os.path.join(self.path, "wal")
+        self.segments: list = []
+        self.key_loc: dict = {}          # key -> [(segment index, local id)] oldest first
+        self.dead: list = []             # per segment: set of dead local ids
+        self.live: dict = {}             # arxiv_id -> key of its live version
+        self.buf: dict = {}              # key -> _BufDoc (insertion ordered)
+        self.buf_inv: dict = {}          # term -> {key: tf}
+        self.pending_tomb: set = set()   # keys killed in segments since the last flush
+        self.seq = 0
+        self.recovery: dict = {}
+        self._writer = None
+        self._lock = DirLock(self._ensure_dir())
+        self._lock.acquire()
+        try:
+            self._recover()
+        except BaseException:
+            self._release_everything()
+            raise
+
+    def _ensure_dir(self):
+        os.makedirs(self.path, exist_ok=True)
+        return self.path
+
+    # ------------------------------------------------------------ recovery
+    def _recover(self) -> None:
+        os.makedirs(self.seg_root, exist_ok=True)
+        os.makedirs(self.wal_dir, exist_ok=True)
+        stats = {"removed_tmp": 0, "removed_unlisted": 0, "replayed": 0,
+                 "torn_bytes_cut": 0, "old_wals_removed": 0}
+        try:
+            self.manifest = read_manifest(self.path)
+        except ManifestError as e:
+            raise IndexCorrupt(str(e)) from e
+        stale = os.path.join(self.path, "MANIFEST.tmp")
+        if os.path.exists(stale):
+            os.remove(stale)
+        listed = set(self.manifest.segments)
+        for name in sorted(os.listdir(self.seg_root)):
+            if name.startswith(".tmp-"):
+                shutil.rmtree(os.path.join(self.seg_root, name))
+                stats["removed_tmp"] += 1
+            elif name.startswith("seg-") and name not in listed:
+                shutil.rmtree(os.path.join(self.seg_root, name))
+                stats["removed_unlisted"] += 1
+        fsync_dir(self.seg_root)
+        for name in self.manifest.segments:
+            path = os.path.join(self.seg_root, name)
+            if not os.path.isdir(path):
+                raise IndexCorrupt(f"MANIFEST lists {name} but it is missing")
+            try:
+                self.segments.append(Segment.open(path))
+            except SegmentError as e:
+                raise IndexCorrupt(str(e)) from e
+        self._rebuild_from_segments()
+        self.seq = self.manifest.last_flushed_seq
+        self._replay_diary(stats)
+        self.recovery = stats
+
+    def _rebuild_from_segments(self) -> None:
+        self.dead = [set() for _ in self.segments]
+        for si, seg in enumerate(self.segments):
+            for local, key in enumerate(seg.keys):
+                self.key_loc.setdefault(key, []).append((si, local))
+        for sj, seg in enumerate(self.segments):          # tombstones hit OLDER segments only
+            for key in seg.tombstones:
+                for si, local in self.key_loc.get(key, ()):
+                    if si < sj:
+                        self.dead[si].add(local)
+        for si, seg in enumerate(self.segments):
+            for local, key in enumerate(seg.keys):
+                if local not in self.dead[si]:
+                    self.live[split_key(key)[0]] = key
+
+    def _replay_diary(self, stats) -> None:
+        flushed = self.manifest.last_flushed_seq
+        wals = list_wals(self.wal_dir)
+        max_seq_in = {}
+        for i, (_first, path) in enumerate(wals):
+            is_last = i == len(wals) - 1
+            res = recover_tail(path) if is_last else scan_file(path)
+            if res.torn:
+                if not is_last:
+                    raise IndexCorrupt(f"damaged diary file that is not the newest: {path}")
+                stats["torn_bytes_cut"] += res.file_bytes - res.good_bytes
+            mx = 0
+            for payload in res.payloads:
+                try:
+                    e = json.loads(payload.decode("utf-8"))
+                    seq, op, key = e["seq"], e["op"], e["key"]
+                except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as ex:
+                    raise IndexCorrupt(f"{path}: bad diary entry ({ex})") from ex
+                mx = max(mx, seq)
+                if seq <= flushed:
+                    continue                               # already inside a segment
+                if seq <= self.seq:
+                    raise IndexCorrupt(f"{path}: diary sequence goes backwards at {seq}")
+                if op == "put":
+                    self._apply_put(PaperRecord.from_dict(e["paper"]))
+                elif op == "delete":
+                    self._apply_delete(key)
+                else:
+                    raise IndexCorrupt(f"{path}: unknown op {op!r}")
+                self.seq = seq
+                stats["replayed"] += 1
+            max_seq_in[path] = mx
+        # choose the diary file to append to; drop files whose entries are all flushed
+        active = None
+        if wals and max_seq_in[wals[-1][1]] > flushed:
+            active = wals[-1][1]
+        else:
+            active = os.path.join(self.wal_dir, wal_name(self.seq + 1))
+        for _first, path in wals:
+            if path != active and max_seq_in[path] <= flushed:
+                os.remove(path)
+                stats["old_wals_removed"] += 1
+        self._writer = DiaryWriter(active)
+        fsync_dir(self.wal_dir)
+
+    # ------------------------------------------------------------ state changes
+    def _apply_put(self, paper: PaperRecord) -> None:
+        old = self.live.get(paper.arxiv_id)
+        if old is not None:
+            self._kill(old)
+        tf, dl = term_freqs(paper_text(paper.title, paper.abstract))
+        self.buf[paper.key] = _BufDoc(paper, tf, dl)
+        for term, c in tf.items():
+            self.buf_inv.setdefault(term, {})[paper.key] = c
+        self.live[paper.arxiv_id] = paper.key
+
+    def _apply_delete(self, key: str) -> None:
+        if self.live.get(split_key(key)[0]) == key:
+            self._kill(key)
+            del self.live[split_key(key)[0]]
+
+    def _kill(self, key: str) -> None:
+        """Remove the LIVE copy of `key` (buffer first, else newest live segment copy)."""
+        doc = self.buf.pop(key, None)
+        if doc is not None:
+            for term in doc.tf:
+                postings = self.buf_inv[term]
+                del postings[key]
+                if not postings:
+                    del self.buf_inv[term]
+            return
+        for si, local in reversed(self.key_loc.get(key, ())):
+            if local not in self.dead[si]:
+                self.dead[si].add(local)
+                self.pending_tomb.add(key)
+                return
+
+    # ------------------------------------------------------------ public write API
+    def put(self, paper: PaperRecord) -> PutResult:
+        cur = self.live.get(paper.arxiv_id)
+        outcome = decide(split_key(cur)[1] if cur else None, paper.datestamp)
+        if outcome in ("duplicate", "stale"):
+            return PutResult(outcome, 0)
+        seq = self.seq + 1
+        self._log({"seq": seq, "op": "put", "key": paper.key, "paper": paper.to_dict()})
+        self.seq = seq
+        self._apply_put(paper)
+        return PutResult(outcome, seq)
+
+    def delete(self, arxiv_id: str) -> bool:
+        key = self.live.get(arxiv_id)
+        if key is None:
+            return False
+        seq = self.seq + 1
+        self._log({"seq": seq, "op": "delete", "key": key, "paper": None})
+        self.seq = seq
+        self._apply_delete(key)
+        return True
+
+    def _log(self, entry: dict) -> None:
+        self._writer.put(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+    def commit(self) -> None:
+        """fsync the diary: everything put()/delete()d so far is now acknowledged."""
+        self._writer.commit()
+        if len(self.buf) >= self.flush_docs:
+            self.flush()
+
+    # ------------------------------------------------------------ flush
+    def flush(self):
+        """Freeze the buffer into a segment. Returns the segment name, or None if nothing to do."""
+        if not self.buf and not self.pending_tomb:
+            return None
+        self._writer.commit()                              # nothing unlogged may be flushed
+        name = segment_name(self._next_segment_number())
+        docs = [(k, d.paper, d.tf, d.dl) for k, d in self.buf.items()]
+        tomb = sorted(self.pending_tomb)
+        tmp = write_segment_tmp(self.seg_root, name, docs, tomb)
+        crashpoint("flush_after_tmp_written")
+        publish_segment(self.seg_root, tmp, name)
+        crashpoint("flush_after_segment_rename")
+        write_manifest(self.path, self.manifest.next(
+            last_flushed_seq=self.seq, segments=self.manifest.segments + (name,)))
+        self.manifest = read_manifest(self.path)
+        crashpoint("flush_after_manifest")
+        # in-memory state follows the disk
+        seg = Segment.open(os.path.join(self.seg_root, name))
+        si = len(self.segments)
+        self.segments.append(seg)
+        self.dead.append(set())
+        for local, key in enumerate(seg.keys):
+            self.key_loc.setdefault(key, []).append((si, local))
+        self.buf.clear()
+        self.buf_inv.clear()
+        self.pending_tomb.clear()
+        # new diary file first, then delete the old ones
+        self._writer.close()
+        new_path = os.path.join(self.wal_dir, wal_name(self.seq + 1))
+        self._writer = DiaryWriter(new_path)
+        for _first, path in list_wals(self.wal_dir):
+            if path != new_path:
+                os.remove(path)
+        fsync_dir(self.wal_dir)
+        crashpoint("flush_after_wal_delete")
+        return name
+
+    def _next_segment_number(self) -> int:
+        nums = [segment_number(n) for n in self.manifest.segments]
+        nums += [segment_number(n) for n in os.listdir(self.seg_root)]
+        return max([n for n in nums if n is not None] + [0]) + 1
+
+    # ------------------------------------------------------------ reads
+    def get(self, arxiv_id: str):
+        key = self.live.get(arxiv_id)
+        if key is None:
+            return None
+        if key in self.buf:
+            return self.buf[key].paper
+        for si, local in reversed(self.key_loc[key]):
+            if local not in self.dead[si]:
+                return self.segments[si].paper(local)
+        raise IndexCorrupt(f"live key {key} has no live copy")
+
+    def live_keys(self) -> set:
+        return set(self.live.values())
+
+    def stats(self) -> dict:
+        return {
+            "live_docs": len(self.live),
+            "physical_docs": sum(s.num_docs for s in self.segments) + len(self.buf),
+            "segments": len(self.segments),
+            "buffer_docs": len(self.buf),
+            "pending_tombstones": len(self.pending_tomb),
+            "last_seq": self.seq,
+            "generation": self.manifest.generation,
+            "last_flushed_seq": self.manifest.last_flushed_seq,
+            "recovery": dict(self.recovery),
+        }
+
+    def search(self, query: str, k=10) -> list:
+        """BM25 over buffer + all segments. k=None returns every matching live doc."""
+        terms = list(dict.fromkeys(tokenize(query)))
+        n_docs = sum(s.num_docs for s in self.segments) + len(self.buf)
+        if not terms or n_docs == 0:
+            return []
+        total_len = sum(s.total_doclen for s in self.segments) + sum(d.dl for d in self.buf.values())
+        avgdl = total_len / n_docs
+        scores: dict = {}
+        for term in terms:
+            df = sum(s.df(term) for s in self.segments) + len(self.buf_inv.get(term, ()))
+            if df == 0:
+                continue
+            idf = math.log(1.0 + (n_docs - df + 0.5) / (df + 0.5))
+            for si, seg in enumerate(self.segments):
+                dead = self.dead[si]
+                for local, tf in seg.postings(term):
+                    if local in dead:
+                        continue
+                    dl = seg.doclens[local]
+                    s = idf * tf * (K1 + 1.0) / (tf + K1 * (1.0 - B + B * dl / avgdl))
+                    key = seg.keys[local]
+                    scores[key] = scores.get(key, 0.0) + s
+            for key, tf in self.buf_inv.get(term, {}).items():
+                dl = self.buf[key].dl
+                s = idf * tf * (K1 + 1.0) / (tf + K1 * (1.0 - B + B * dl / avgdl))
+                scores[key] = scores.get(key, 0.0) + s
+        order = lambda kv: (-kv[1], kv[0])                 # score desc, then key: deterministic
+        ranked = sorted(scores.items(), key=order) if k is None else heapq.nsmallest(k, scores.items(), key=order)
+        return [Hit(s, key, split_key(key)[0]) for key, s in ranked]
+
+    # ------------------------------------------------------------ lifecycle
+    def _release_everything(self) -> None:
+        if self._writer is not None:
+            self._writer.close()
+            self._writer = None
+        for s in self.segments:
+            s.close()
+        self.segments = []
+        self._lock.release()
+
+    def close(self) -> None:
+        if self._writer is not None:
+            self._writer.commit()
+        self._release_everything()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
