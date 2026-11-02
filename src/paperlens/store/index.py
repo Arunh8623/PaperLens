@@ -80,9 +80,11 @@ class _BufDoc(NamedTuple):
 
 
 class IndexStore:
-    def __init__(self, path, flush_docs: int = 1000):
+    def __init__(self, path, flush_docs: int = 1000, allow_tokenizer_mismatch: bool = False):
         self.path = os.fspath(path)
         self.flush_docs = flush_docs
+        # True only for READING an old index so it can be reindexed; search results would be wrong.
+        self.allow_tokenizer_mismatch = allow_tokenizer_mismatch
         self.seg_root = os.path.join(self.path, "segments")
         self.wal_dir = os.path.join(self.path, "wal")
         self.segments: list = []
@@ -134,7 +136,7 @@ class IndexStore:
             if not os.path.isdir(path):
                 raise IndexCorrupt(f"MANIFEST lists {name} but it is missing")
             try:
-                self.segments.append(Segment.open(path))
+                self.segments.append(Segment.open(path, check_tokenizer=not self.allow_tokenizer_mismatch))
             except SegmentError as e:
                 raise IndexCorrupt(str(e)) from e
         self._rebuild_from_segments()
@@ -203,11 +205,11 @@ class IndexStore:
         fsync_dir(self.wal_dir)
 
     # ------------------------------------------------------------ state changes
-    def _apply_put(self, paper: PaperRecord) -> None:
+    def _apply_put(self, paper: PaperRecord, precomputed=None) -> None:
         old = self.live.get(paper.arxiv_id)
         if old is not None:
             self._kill(old)
-        tf, dl = term_freqs(paper_text(paper.title, paper.abstract))
+        tf, dl = precomputed if precomputed is not None else term_freqs(paper_text(paper.title, paper.abstract))
         self.buf[paper.key] = _BufDoc(paper, tf, dl)
         for term, c in tf.items():
             self.buf_inv.setdefault(term, {})[paper.key] = c
@@ -235,7 +237,14 @@ class IndexStore:
                 return
 
     # ------------------------------------------------------------ public write API
-    def put(self, paper: PaperRecord) -> PutResult:
+    def put(self, paper: PaperRecord, precomputed=None) -> PutResult:
+        """precomputed=(term_freqs, doc_len) lets a reader process do the tokenizing so the
+        single writer does not (pipeline, Phase 2). It is checked, never trusted blindly.
+        Crash replay always recomputes from the paper text."""
+        if precomputed is not None:
+            tf, dl = precomputed
+            if (not tf or sum(tf.values()) != dl or any(c < 1 for c in tf.values())):
+                raise ValueError("precomputed term counts are inconsistent (sum(tf) != doc_len)")
         cur = self.live.get(paper.arxiv_id)
         outcome = decide(split_key(cur)[1] if cur else None, paper.datestamp)
         if outcome in ("duplicate", "stale"):
@@ -243,7 +252,7 @@ class IndexStore:
         seq = self.seq + 1
         self._log({"seq": seq, "op": "put", "key": paper.key, "paper": paper.to_dict()})
         self.seq = seq
-        self._apply_put(paper)
+        self._apply_put(paper, precomputed)
         return PutResult(outcome, seq)
 
     def delete(self, arxiv_id: str) -> bool:

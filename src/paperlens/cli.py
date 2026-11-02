@@ -128,6 +128,36 @@ def _cmd_fsck(a) -> int:
     return 0 if rep.ok else 1
 
 
+def _cmd_beir(a) -> int:
+    import json
+    from .eval.beir import BeirError, run_beir
+    try:
+        res = run_beir(a.data, split=a.split, index_dir=a.index, k=a.k)
+    except BeirError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(json.dumps(res, indent=1))
+    if a.out:
+        os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+        with open(a.out, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(res, f, indent=1)
+            f.write("\n")
+        print(f"saved: {a.out}")
+    return 0
+
+
+def _cmd_reindex(a) -> int:
+    from .store.index import IndexCorrupt
+    from .store.lock import IndexLocked
+    from .store.reindex import ReindexError, reindex
+    try:
+        reindex(a.src, a.dst, flush_docs=a.flush_docs)
+    except (ReindexError, IndexLocked, IndexCorrupt) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="paperlens")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -175,6 +205,19 @@ def build_parser() -> argparse.ArgumentParser:
     f = sub.add_parser("fsck", help="check an index for damage (read-only)")
     f.add_argument("--index", required=True)
     f.set_defaults(fn=_cmd_fsck)
+    b = sub.add_parser("beir", help="evaluate on a BEIR-format dataset (nDCG@10, Recall@100, MRR@10)")
+    b.add_argument("--data", required=True, help="folder with corpus.jsonl, queries.jsonl, qrels/<split>.tsv")
+    b.add_argument("--split", default="test")
+    b.add_argument("--index", help="empty folder to keep the index in (default: temporary, deleted)")
+    b.add_argument("-k", type=int, default=100, help="results retrieved per query")
+    b.add_argument("--out", help="also save the JSON result here (e.g. docs/evidence/beir-scifact.json)")
+    b.set_defaults(fn=_cmd_beir)
+
+    r = sub.add_parser("reindex", help="rebuild an index with the current tokenizer into a NEW folder")
+    r.add_argument("--src", required=True)
+    r.add_argument("--dst", required=True)
+    r.add_argument("--flush-docs", type=int, default=5000)
+    r.set_defaults(fn=_cmd_reindex)
     return ap
 
 

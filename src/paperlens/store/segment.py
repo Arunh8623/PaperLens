@@ -190,7 +190,7 @@ class Segment:
         return self.meta["total_doclen"]
 
     @classmethod
-    def open(cls, path: str) -> "Segment":
+    def open(cls, path: str, check_tokenizer: bool = True) -> "Segment":
         s = cls()
         s.path, s.name = path, os.path.basename(path)
         try:
@@ -198,7 +198,7 @@ class Segment:
                 s.meta = json.loads(f.read().decode("utf-8"))
             if s.meta["format"] != FORMAT:
                 raise SegmentError(f"{s.name}: unsupported format {s.meta['format']}")
-            if s.meta["tokenizer_version"] != TOKENIZER_VERSION:
+            if check_tokenizer and s.meta["tokenizer_version"] != TOKENIZER_VERSION:
                 raise SegmentError(f"{s.name}: built with tokenizer v{s.meta['tokenizer_version']}, "
                                    f"this code is v{TOKENIZER_VERSION}; reindex")
             for fname, info in s.meta["files"].items():
