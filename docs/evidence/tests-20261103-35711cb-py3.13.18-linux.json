@@ -1,0 +1,111 @@
+{
+ "recorded_utc": "2026-11-03T03:11:53Z",
+ "git_commit": "35711cb",
+ "git_tree_dirty": false,
+ "python": "3.13.18",
+ "platform": "Linux-6.18.44-fc-v230-x86_64-with-glibc2.39",
+ "cpu_count": 2,
+ "pytest_exit_code": 0,
+ "totals": {
+  "passed": 233,
+  "failed": 0,
+  "skipped": 0
+ },
+ "per_file": {
+  "tests/test_cli.py": {
+   "passed": 5,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_cli_index.py": {
+   "passed": 4,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_crash.py": {
+   "passed": 34,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_diary.py": {
+   "passed": 11,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_eval.py": {
+   "passed": 12,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_fsutil.py": {
+   "passed": 6,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_harvest.py": {
+   "passed": 24,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_index.py": {
+   "passed": 15,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_limiter.py": {
+   "passed": 6,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_lock.py": {
+   "passed": 3,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_manifest.py": {
+   "passed": 10,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_paper.py": {
+   "passed": 17,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_pipeline.py": {
+   "passed": 22,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_reindex.py": {
+   "passed": 3,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_segment.py": {
+   "passed": 15,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_shared_limiter.py": {
+   "passed": 6,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_synth.py": {
+   "passed": 4,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_tokenizer.py": {
+   "passed": 19,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_varint.py": {
+   "passed": 17,
+   "failed": 0,
+   "skipped": 0
+  }
+ }
+}

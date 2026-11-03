@@ -1,6 +1,6 @@
 # Phase 2: multi-process ingestion pipeline (Engine E1)
 
-Status: **built and tested on Linux. Never run on Windows.** Date of the work: 2026-11-03.
+Status: **built and tested on Linux (whole suite: 233 passed, evidence JSON in docs/evidence). Never run on Windows.** Date of the work: 2026-11-03.
 
 ## What it does and why (for a classmate)
 
