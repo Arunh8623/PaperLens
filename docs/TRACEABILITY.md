@@ -9,7 +9,7 @@ Test names are in `tests/`. Last updated: Phase 0.
 | Req | What | Engine | Module(s) | Tests | Status |
 |---|---|---|---|---|---|
 | FR1 | collect papers within source limits | E1 (supporting) | `harvest/arxiv_oai.py`, `harvest/limiter.py` | `test_harvest.py`, `test_limiter.py`, `test_cli.py` | **partial**: arXiv harvester built and tested against a local fake server; **real run on arXiv pending**; OpenAlex = Phase 4 |
-| FR2 | parallel fault-tolerant ingestion | E1 | `pipeline/` | - | planned (Phase 2) |
+| FR2 | parallel fault-tolerant ingestion | E1 | `pipeline/` (`supervisor.py`, `workers.py`, `messages.py`, `shm.py`, `embed.py`) | `test_pipeline.py` (22 tests), `test_shared_limiter.py` (6) | **built, tested on Linux** (reader kills, writer kills at all 6 crash points, chaos, poison paper, hang, corrupt vector, re-run); **not run on Windows** |
 | FR3 | durable index + crash recovery | E2 | `store/diary.py`, `manifest.py`, `segment.py`, `index.py`, `fsck.py`, `lock.py`, `crashpoints.py` | `test_diary.py`, `test_manifest.py`, `test_segment.py`, `test_index.py`, `test_crash.py`, `test_lock.py` | **built for process crashes** (all 6 crash points + random SIGKILL, Linux). **Not shown:** power-loss safety, Windows |
 | FR4 | background compaction | E2 | - | - | planned (Phase 5) |
 | FR5 | keyword search, BM25, science-aware tokenizer | E3 | `text/tokenizer.py`, `text/varint.py`, `store/index.py` (`search`) | `test_tokenizer.py`, `test_varint.py`, `test_index.py` (vs `oracle.py`) | **partial**: BM25 over varint postings equals a brute-force model to 1e-9 on synthetic data; tokenizer is still the toy; **quality on real data / BEIR not measured** |
@@ -25,13 +25,13 @@ Test names are in `tests/`. Last updated: Phase 0.
 | Req | Target | Engine | Evidence so far | Status |
 |---|---|---|---|---|
 | NFR1 | 0 lost / 0 duplicated acknowledged papers across kills at every write step | E2 | 6 of 6 crash points x 2 occurrences x {plain, messy} streams = 24 runs, + 2 random-SIGKILL runs (6 rounds each), each followed by fsck and a full re-send; mutation check kills 13/15 recovery/ranking mutants (see PHASE1A.md for the 2 expected survivors) | **built for process kills on Linux**; "writer kill" under the pipeline = Phase 2; power loss untested |
-| NFR2 | ingestion fault tolerance (readers killed every ~0.25 s, writer twice) | E1 | - | planned (Phase 2) |
-| NFR3 | >= 70% parallel efficiency at 4 readers | E1 | - (must be measured on a >= 4-core machine; our sandbox has 2) | planned |
+| NFR2 | ingestion fault tolerance (readers killed every ~0.25 s, writer twice) | E1 | `test_chaos_readers_killed_every_quarter_second_and_writer_twice` (300-paper messy stream, >= 3 reader kills, 2 writer kills, index == ground truth, replacement < 5 s) | **built, Linux**; scale of the run is small (300 papers) |
+| NFR3 | >= 70% parallel efficiency at 4 readers | E1 | `bench/pipeline_speedup.py`; sandbox (2 cores, SIMULATED 3 ms/paper CPU work) gave 1.79x at 2 readers = 0.89 efficiency (`docs/evidence/speedup-sandbox-2core-SIMULATED-burn3ms.json`) | **NOT demonstrated**: needs a >= 4-core run on your machine |
 | NFR4 | p95 <= 500 ms at 50,000 papers | E3 | - | planned |
 | NFR5 | consistent read snapshots | E2 | - | planned (Phase 5) |
 | NFR6 | hybrid nDCG@10 >= better of keyword/vector on SciFact + SCIDOCS | E3 | - | planned |
 | NFR7 | codes <= 1/8 of float32, recall@10 >= 95% of exact | E3 + E2 | - | planned (Phase 3) |
-| NFR8 | >= 3 s between arXiv requests, 0 calls over OpenAlex budget | E1 | spacing proven with a virtual clock **and** measured at the server with a real clock (`test_real_time_spacing_measured_by_the_server`); the CLI refuses < 3 s | **partial**: single process only; all-process limiter = Phase 2; OpenAlex budget = Phase 4 |
+| NFR8 | >= 3 s between arXiv requests, 0 calls over OpenAlex budget | E1 | spacing proven with a virtual clock **and** measured at the server with a real clock (`test_real_time_spacing_measured_by_the_server`); the CLI refuses < 3 s | **partial**: all-process `SharedLimiter` + `SharedBudget` built and tested (4 racing processes; pipeline test with 3 readers); real arXiv fetching through it not wired yet; OpenAlex budget use = Phase 4 |
 | NFR9 | Windows + Linux, no GPU/paid service, one-command results | all | tested on Linux, Python 3.10/3.11/3.12/3.13; Windows hardening written (`retry_fs`, timing slack) and `scripts/windows_check.py` ready; **never run on Windows** | **partial** |
 
 ## Phase 0 deliverables (from the brief)

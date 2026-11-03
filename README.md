@@ -90,6 +90,20 @@ Try the crash demo by hand (Linux/macOS): start an `index` of a big file, `kill 
 `fsck` (it will only warn about leftovers) and `index-stats` (recovery runs on open).
 Re-running `index` with the same file is safe: duplicates are ignored.
 
+## Parallel ingestion (Phase 2)
+
+```powershell
+python -m paperlens synth --n 5000 --seed 1 --out data\synth.jsonl
+python -m paperlens ingest --index data\ix --input data\synth.jsonl --readers 4
+python -m paperlens ingest --index data\ix2 --input data\synth.jsonl --readers 4 --chaos   # kills workers on purpose
+python -m paperlens fsck --index data\ix2
+python bench\pipeline_speedup.py --papers 4000 --burn-ms 5 --out docs\evidence\speedup-mypc.json
+```
+
+`--chaos` kills a random reader every 0.25 s and the writer twice; the final index must still hold
+every paper exactly once (`fsck` plus a search to check). The benchmark header explains why
+`--burn-ms` exists (simulated model work) and what the numbers do and do not mean.
+
 ## Harvest real arXiv metadata (do this on your own machine)
 
 arXiv rules (checked 2026-10-31): 1 request per 3 s, one connection, all your machines
@@ -114,6 +128,7 @@ src/paperlens/
   store/       diary, MANIFEST, segments, IndexStore, fsck, lock, crash points  (E2)
   text/        science-aware tokenizer, varint postings codec   (E3 keyword)
   testing/     helpers that crash-test child processes import
+  pipeline/    supervisor, reader/writer workers, shared memory, shared limiter  (E1)
   harvest/     arXiv OAI-PMH harvester, limiter, fake server   (E1, supporting)
   synth.py     seeded synthetic data (plumbing tests only)
   cli.py       python -m paperlens ...

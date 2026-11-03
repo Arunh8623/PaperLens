@@ -128,6 +128,30 @@ def _cmd_fsck(a) -> int:
     return 0 if rep.ok else 1
 
 
+def _cmd_ingest(a) -> int:
+    """JSONL -> index through the multi-process pipeline (readers in parallel, one writer)."""
+    from .contracts.paper import read_jsonl
+    from .pipeline.supervisor import PipelineConfig, PipelineError, run_pipeline
+    from .pipeline.workers import Faults
+    from .store.lock import IndexLocked
+    cfg = PipelineConfig(index_path=a.index, n_readers=a.readers, flush_docs=a.flush_docs,
+                         chaos_reader_interval=0.25 if a.chaos else 0.0,
+                         chaos_writer_kills=2 if a.chaos else 0, max_attempts=6 if a.chaos else 3,
+                         faults=Faults(slow_seconds=a.chaos_slow if a.chaos else 0.0),
+                         log=print if a.verbose else None)
+    try:
+        rep = run_pipeline(read_jsonl(a.input, skip_bad=a.skip_bad), cfg)
+    except (PipelineError, IndexLocked) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print("outcomes     :", rep.outcomes)
+    print("dead letters :", rep.dead_letters)
+    print(f"respawns     : readers={rep.reader_respawns} writer={rep.writer_respawns} "
+          f"(chaos kills: readers={rep.chaos_reader_kills} writer={rep.chaos_writer_kills})")
+    print(f"elapsed      : {rep.elapsed:.2f} s for {rep.jobs} papers")
+    return 0 if not rep.dead_letters else 3
+
+
 def _cmd_beir(a) -> int:
     import json
     from .eval.beir import BeirError, run_beir
@@ -205,6 +229,17 @@ def build_parser() -> argparse.ArgumentParser:
     f = sub.add_parser("fsck", help="check an index for damage (read-only)")
     f.add_argument("--index", required=True)
     f.set_defaults(fn=_cmd_fsck)
+    g = sub.add_parser("ingest", help="JSONL -> index with the multi-process pipeline")
+    g.add_argument("--index", required=True)
+    g.add_argument("--input", required=True)
+    g.add_argument("--readers", type=int, default=2)
+    g.add_argument("--flush-docs", type=int, default=1000)
+    g.add_argument("--skip-bad", action="store_true")
+    g.add_argument("--chaos", action="store_true", help="kill a random reader every 0.25 s and the writer twice")
+    g.add_argument("--chaos-slow", type=float, default=0.02, help="per-paper delay so chaos has time to bite")
+    g.add_argument("--verbose", action="store_true")
+    g.set_defaults(fn=_cmd_ingest)
+
     b = sub.add_parser("beir", help="evaluate on a BEIR-format dataset (nDCG@10, Recall@100, MRR@10)")
     b.add_argument("--data", required=True, help="folder with corpus.jsonl, queries.jsonl, qrels/<split>.tsv")
     b.add_argument("--split", default="test")

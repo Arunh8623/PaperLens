@@ -128,11 +128,19 @@ brute-force model to 1e-9.
 
 Each test asserts the child really exited with code 77, so an unwired point fails the test.
 
-## 7. Pipeline messages `PLANNED` (Phase 2, E1)
+## 7. Pipeline messages `BUILT` (Phase 2, E1; `pipeline/messages.py`)
 
-`PaperJob(job_id, paper, slot)`, `PaperReady(job_id, reader_id, key, paper, term_freqs,
-doc_len, shm_name, shm_slot, vec_dim, vec_crc)`, `Ack(job_id, key, seq)` with
-`seq >= 1` stored, `-1` duplicate, `-2` rejected (retry).
+`PaperJob(job_id, paper, slot, attempt)`, `PaperReady(job_id, reader_id, key, paper, term_freqs,
+doc_len, shm_name, shm_slot, vec_dim, vec_crc, attempt)`, `Ack(job_id, key, seq, outcome, vec_crc)`
+with `seq >= 1` stored, `-1` duplicate or stale (already known), `-2` rejected (retry). Extra
+fields beyond the brief: `attempt` (retry count), `outcome` (text: insert / replace / duplicate /
+stale / `bad_vector: ...` / `permanent: ...`), `vec_crc` (what the writer actually read).
+Also: `AckBatch`, `Heartbeat`, `Ready`, `JobFailed(job_id, error, permanent)`, `WriterDone`, `Stop`.
+
+Rules (all tested, see PHASE2.md): one private pair of pipes per worker incarnation; the
+supervisor picks the shared-memory slot; a slot is freed only when its job is done or re-queued;
+the writer acknowledges only after `commit()`; a job is "done" only on an acknowledgement.
+Vectors are verified (crc) but **not yet stored** by the writer: persisting them is Phase 3.
 
 ## 8. Tokenizer `BUILT` toy (`text/tokenizer.py`)
 

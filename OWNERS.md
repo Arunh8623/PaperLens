@@ -9,7 +9,7 @@ so the evidence is honest: the git history shows who did the work.
 
 | Engine | Kind | Modules (src/paperlens/...) | Built by | Status |
 |---|---|---|---|---|
-| E1 OS Process & Ingestion | MAJOR | `pipeline/` | Arun (+ AI) | Phase 2, not started |
+| E1 OS Process & Ingestion | MAJOR | `pipeline/` | Arun (+ AI) | Phase 2 built (Linux-tested) |
 | E1 harvester (arXiv/OpenAlex) | SUPPORTING | `harvest/` | Arun (+ AI) | arXiv built; OpenAlex Phase 4 |
 | E2 Persistent Hybrid Index | MAJOR | `store/` | Arun (+ AI) | keyword index built (Phase 1a); vectors/compaction later |
 | E3 Retrieval, keyword side | MAJOR | `text/`, `eval/` | Arun (+ AI) | BM25 + toy tokenizer built; eval Phase 1b |

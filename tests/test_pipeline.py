@@ -175,3 +175,16 @@ def test_chaos_readers_killed_every_quarter_second_and_writer_twice(tmp_path):
     assert rep.writer_respawns >= 2 and not rep.dead_letters
     assert rep.replace_seconds_max < 5.0                              # NFR2: replaced within 5 s
     check_index(tmp_path / "ix", papers)
+
+
+def test_cli_ingest_then_search(tmp_path, capsys):
+    from paperlens.cli import main
+    src = tmp_path / "p.jsonl"
+    assert main(["synth", "--n", "120", "--seed", "3", "--out", str(src)]) == 0
+    assert main(["ingest", "--index", str(tmp_path / "ix"), "--input", str(src), "--readers", "2",
+                 "--flush-docs", "50"]) == 0
+    out = capsys.readouterr().out
+    assert "{'insert': 120}" in out and "dead letters : []" in out
+    assert main(["fsck", "--index", str(tmp_path / "ix")]) == 0
+    assert main(["ingest", "--index", str(tmp_path / "ix"), "--input", str(src)]) == 0   # re-run: all duplicates
+    assert "{'duplicate': 120}" in capsys.readouterr().out

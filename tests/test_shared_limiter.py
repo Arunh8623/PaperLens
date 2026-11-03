@@ -9,9 +9,12 @@ CTX = mp.get_context("spawn")
 
 
 def test_limiter_single_process_spacing():
+    import time
     lim = SharedLimiter(0.05)
+    t0 = time.monotonic()
     for _ in range(5):
         lim.wait()
+    assert time.monotonic() - t0 >= 4 * 0.05 - 0.01              # really slept, not just booked slots
     assert lim.min_gap_seen() >= 0.05 - 1e-9
     assert len(lim.history()) == 5
 
@@ -26,13 +29,16 @@ def test_limiter_penalize_pushes_next_slot():
 
 
 def test_limiter_across_processes_never_closer_than_interval():
+    import time
     lim = SharedLimiter(0.05, ctx=CTX)
     procs = [CTX.Process(target=hammer_limiter, args=(lim, 8)) for _ in range(4)]
+    t0 = time.monotonic()
     for p in procs:
         p.start()
     for p in procs:
         p.join(30)
         assert p.exitcode == 0
+    assert time.monotonic() - t0 >= 31 * 0.05 - 0.01             # 32 calls cannot finish faster than this
     assert len(lim.history()) == 32
     assert lim.min_gap_seen() >= 0.05 - 1e-6                     # 4 processes, still one global rhythm
 

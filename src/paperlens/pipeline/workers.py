@@ -48,6 +48,7 @@ class Faults:
     corrupt_vector_once_on_key: frozenset = frozenset()  # slot content != checksum, first attempt
     die_at_start_readers: bool = False             # every reader dies before saying Ready
     slow_seconds: float = 0.0                      # sleep per job (gives chaos time to bite)
+    burn_seconds: float = 0.0                      # CPU-spin per job: SIMULATED model inference (benchmark only)
 
 
 class _Chan:
@@ -130,6 +131,10 @@ def _process(job: PaperJob, wid, arena, arena_name, dim, f: Faults, limiter) -> 
         raise RuntimeError("injected failure")
     if f.slow_seconds:
         time.sleep(f.slow_seconds)
+    if f.burn_seconds:
+        end = time.perf_counter() + f.burn_seconds
+        while time.perf_counter() < end:
+            pass
     if limiter is not None:
         limiter.wait()                                     # stand-in for "fetch from a rate-limited source"
     tf, dl = term_freqs(paper_text(paper.title, paper.abstract))

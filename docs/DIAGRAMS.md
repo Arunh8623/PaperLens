@@ -122,3 +122,43 @@ flowchart TD
     T --> W[append to diary, drop fully flushed diary files]
     W --> Z([ready])
 ```
+
+# Phase 2 additions (built)
+
+## 8. Life of a job in the supervisor's books
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> in_reader: dispatched (least-loaded reader, slot chosen)
+    in_reader --> in_writer: PaperReady received, forwarded to writer
+    in_reader --> pending: reader died (head job: attempt+1) / JobFailed / hang kill
+    in_writer --> done: Ack seq>=1 (stored) or -1 (duplicate/stale)
+    in_writer --> pending: Ack -2 (bad vector) -> attempt+1
+    in_writer --> in_writer: writer died -> PaperReady re-sent to the new writer
+    pending --> dead_letter: attempts >= max (or permanent error)
+    in_reader --> dead_letter: attempts >= max
+    done --> [*]
+    dead_letter --> [*]
+```
+
+## 9. One paper through the pipeline
+
+```mermaid
+sequenceDiagram
+    participant S as Supervisor
+    participant R as Reader (own pipes)
+    participant M as Shared memory arena
+    participant W as Writer (own pipes)
+    participant D as Diary / index
+    S->>R: PaperJob(job, paper, slot)
+    R->>R: tokenize, count terms, make vector
+    R->>M: write vector into slot
+    R->>S: PaperReady(slot, crc, term counts)
+    S->>W: PaperReady (job now in_writer)
+    W->>M: copy bytes out of slot, check crc
+    W->>D: put() (batch of up to 64)
+    W->>D: ONE commit (fsync)
+    W->>S: AckBatch (only now durable)
+    S->>S: job done, slot freed
+```
