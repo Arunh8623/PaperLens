@@ -105,8 +105,23 @@ def _dir_bytes(path) -> int:
     return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(path) for f in fs)
 
 
+def _evaluate_mode(st, name, queries, qrels, k, search):
+    run, lat = {}, []
+    for qid in sorted(qrels):
+        t = time.perf_counter()
+        hits = search(qid, queries[qid])
+        lat.append((time.perf_counter() - t) * 1000)
+        run[qid] = [h.arxiv_id for h in hits]
+    return {"metrics": evaluate(run, qrels),
+            "search_ms": {"p50": round(_pct(lat, 50), 2), "p95": round(_pct(lat, 95), 2),
+                          "mean": round(sum(lat) / len(lat), 2)}}
+
+
 def run_beir(data_dir, split: str = "test", index_dir=None, k: int = 100, flush_docs: int = 5000,
-             log=print) -> dict:
+             log=print, embedder=None, vec_bits: int = 1, nprobe=None, ivf_min_docs: int = 4096) -> dict:
+    """embedder=None: keyword (BM25) only, exactly as in Phase 1. embedder=<vectors.embedders.Embedder>:
+    also store vectors and evaluate vector-only and hybrid (RRF) on the SAME index; the result then has
+    "modes" with all three, and "nfr6_hybrid_at_least_best_single" (NFR6 check on nDCG@10)."""
     corpus, queries, qrels = load_beir(data_dir, split)
     own_tmp = index_dir is None
     index_dir = index_dir or tempfile.mkdtemp(prefix="paperlens-beir-")
@@ -114,23 +129,34 @@ def run_beir(data_dir, split: str = "test", index_dir=None, k: int = 100, flush_
         raise BeirError(f"{index_dir} already holds an index; give an empty folder (or none for a temp one)")
     try:
         t0 = time.perf_counter()
-        with IndexStore(index_dir, flush_docs=flush_docs) as st:
-            for i, (did, (title, text)) in enumerate(corpus.items(), 1):
-                st.put(PaperRecord(arxiv_id=did, datestamp=PLACEHOLDER_DATE, title=title, abstract=text))
-                if i % 256 == 0:
-                    st.commit()
-            st.commit()
+        with IndexStore(index_dir, flush_docs=flush_docs, vec_bits=vec_bits, ivf_min_docs=ivf_min_docs,
+                        embedder_name=embedder.name if embedder else "") as st:
+            items = list(corpus.items())
+            step = 256
+            for a in range(0, len(items), step):
+                chunk = items[a:a + step]
+                vecs = None
+                if embedder is not None:                                   # batch: models are much faster that way
+                    from ..vectors.embedders import paper_input_text
+                    vecs = embedder.embed_texts([paper_input_text(t, x) for _id, (t, x) in chunk])
+                for j, (did, (title, text)) in enumerate(chunk):
+                    st.put(PaperRecord(arxiv_id=did, datestamp=PLACEHOLDER_DATE, title=title, abstract=text),
+                           vector=None if vecs is None else vecs[j])
+                st.commit()
             st.flush()
             build_s = time.perf_counter() - t0
             log(f"indexed {len(corpus)} documents in {build_s:.1f} s")
-            run, lat = {}, []
-            for qid in sorted(qrels):
-                t = time.perf_counter()
-                hits = st.search(queries[qid], k=k)
-                lat.append((time.perf_counter() - t) * 1000)
-                run[qid] = [h.arxiv_id for h in hits]
+            modes = {"bm25": _evaluate_mode(st, "bm25", queries, qrels, k,
+                                            lambda qid, text: st.search(text, k=k))}
+            if embedder is not None:
+                qids = sorted(qrels)
+                qv = dict(zip(qids, embedder.embed_texts([queries[q] for q in qids])))
+                modes["vector"] = _evaluate_mode(st, "vector", queries, qrels, k,
+                                                 lambda qid, text: st.search_vector(qv[qid], k=k, nprobe=nprobe))
+                modes["hybrid"] = _evaluate_mode(st, "hybrid", queries, qrels, k,
+                                                 lambda qid, text: st.search_hybrid(text, qv[qid], k=k, nprobe=nprobe))
             index_bytes = _dir_bytes(index_dir)
-        metrics = evaluate(run, qrels)
+        metrics, lat_summary = modes["bm25"]["metrics"], modes["bm25"]["search_ms"]
     finally:
         if own_tmp:
             shutil.rmtree(index_dir, ignore_errors=True)
@@ -146,8 +172,14 @@ def run_beir(data_dir, split: str = "test", index_dir=None, k: int = 100, flush_
         "dataset": os.path.basename(os.path.abspath(os.fspath(data_dir))), "split": split,
         "documents": len(corpus), "k": k, "metrics": metrics,
         "build_seconds": round(build_s, 2), "index_bytes": index_bytes,
-        "search_ms": {"p50": round(_pct(lat, 50), 2), "p95": round(_pct(lat, 95), 2),
-                      "mean": round(sum(lat) / len(lat), 2)},
+        "search_ms": lat_summary,
+        "modes": modes,
+        "embedder": embedder.name if embedder else None, "vec_bits": vec_bits if embedder else None,
+        "nfr6_hybrid_at_least_best_single": (
+            modes["hybrid"]["metrics"]["ndcg@10"] >= max(modes["bm25"]["metrics"]["ndcg@10"],
+                                                         modes["vector"]["metrics"]["ndcg@10"]) - 1e-12
+            if embedder else None),
         "python": platform.python_version(), "platform": platform.platform(), "cpu_count": os.cpu_count(),
-        "notes": "BM25 k1=1.2 b=0.75, no stemming, title counted twice (D3); see eval/beir.py",
+        "notes": "BM25 k1=1.2 b=0.75, no stemming, title counted twice (D3); see eval/beir.py"
+                 + ("; vector/hybrid use embedder " + embedder.name if embedder else ""),
     }

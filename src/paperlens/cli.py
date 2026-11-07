@@ -71,17 +71,28 @@ def _cmd_index(a) -> int:
     from .store.lock import IndexLocked
     outcomes = Counter()
     try:
-        st = IndexStore(a.index, flush_docs=a.flush_docs)
-    except IndexLocked as e:
+        emb = _make_embedder(a.embedder)
+        st = IndexStore(a.index, flush_docs=a.flush_docs, vec_bits=a.bits,
+                        embedder_name=emb.name if emb else "")
+    except (IndexLocked, ValueError, RuntimeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     with st:
-        n = 0
+        chunk = []
+
+        def put_chunk():
+            vecs = emb.embed_texts([_paper_text(p) for p in chunk]) if emb else None
+            for j, p in enumerate(chunk):
+                outcomes[st.put(p, vector=None if vecs is None else vecs[j]).outcome] += 1
+            st.commit()
+            chunk.clear()
+
         for p in read_jsonl(a.input, skip_bad=a.skip_bad):
-            outcomes[st.put(p).outcome] += 1
-            n += 1
-            if n % a.batch == 0:
-                st.commit()
+            chunk.append(p)
+            if len(chunk) >= a.batch:
+                put_chunk()
+        if chunk:
+            put_chunk()
         st.commit()
         st.flush()
         print("outcomes:", dict(outcomes))
@@ -89,7 +100,20 @@ def _cmd_index(a) -> int:
     return 0
 
 
+def _make_embedder(spec):
+    if not spec:
+        return None
+    from .vectors.embedders import make_embedder
+    return make_embedder(spec)
+
+
+def _paper_text(p) -> str:
+    from .vectors.embedders import paper_input_text
+    return paper_input_text(p.title, p.abstract)
+
+
 def _cmd_search(a) -> int:
+    from .store.filters import Filter
     from .store.index import IndexStore
     from .store.lock import IndexLocked
     try:
@@ -98,13 +122,45 @@ def _cmd_search(a) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     with st:
-        hits = st.search(" ".join(a.query), k=a.k)
+        text = " ".join(a.query)
+        flt = Filter(categories=tuple(a.cat or ()), year_from=a.year_from or 0, year_to=a.year_to or 0)
+        mode = a.mode or ("hybrid" if st.vec_dim else "bm25")
+        qv = None
+        if mode in ("vector", "hybrid"):
+            if not st.vec_dim:
+                print("error: this index has no vectors; build it with --embedder (index/ingest), or use --mode bm25",
+                      file=sys.stderr)
+                return 1
+            try:
+                emb = _make_embedder(a.embedder or st.embedder_name)
+            except (ValueError, RuntimeError) as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+            if emb is None:
+                print("error: the index does not record which embedder made its vectors; pass --embedder",
+                      file=sys.stderr)
+                return 1
+            if emb.dim != st.vec_dim:
+                print(f"error: embedder {emb.name} makes {emb.dim}-number vectors, the index has {st.vec_dim}",
+                      file=sys.stderr)
+                return 1
+            qv = emb.embed_query(text)
+        if mode == "bm25":
+            hits = st.search(text, k=a.k, flt=flt)
+        elif mode == "vector":
+            hits = st.search_vector(qv, k=a.k, flt=flt, nprobe=a.nprobe)
+        else:
+            hits = st.search_hybrid(text, qv, k=a.k, flt=flt, nprobe=a.nprobe)
         if not hits:
             print("no results")
         for rank, h in enumerate(hits, 1):
             p = st.get(h.arxiv_id)
             print(f"{rank:2d}. {h.score:7.3f}  {h.arxiv_id}  {p.title[:90]}")
             print(f"            {', '.join(p.categories)}  {p.datestamp}")
+            if mode == "hybrid":
+                kw = f"keyword rank {h.bm25_rank}" if h.bm25_rank else "not found by keywords"
+                vc = f"meaning rank {h.vec_rank}" if h.vec_rank else "not found by meaning"
+                print(f"            why: {kw}; {vc}")
     return 0
 
 
@@ -134,7 +190,14 @@ def _cmd_ingest(a) -> int:
     from .pipeline.supervisor import PipelineConfig, PipelineError, run_pipeline
     from .pipeline.workers import Faults
     from .store.lock import IndexLocked
+    try:
+        emb = _make_embedder(a.embedder)
+    except (ValueError, RuntimeError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     cfg = PipelineConfig(index_path=a.index, n_readers=a.readers, flush_docs=a.flush_docs,
+                         store_vectors=emb is not None, embedder=emb.name if emb else "hash",
+                         dim=emb.dim if emb else 64, vec_bits=a.bits,
                          chaos_reader_interval=0.25 if a.chaos else 0.0,
                          chaos_writer_kills=2 if a.chaos else 0, max_attempts=6 if a.chaos else 3,
                          faults=Faults(slow_seconds=a.chaos_slow if a.chaos else 0.0),
@@ -156,8 +219,12 @@ def _cmd_beir(a) -> int:
     import json
     from .eval.beir import BeirError, run_beir
     try:
-        res = run_beir(a.data, split=a.split, index_dir=a.index, k=a.k)
-    except BeirError as e:
+        emb = None
+        if a.embedder:
+            from .vectors.embedders import make_embedder
+            emb = make_embedder(a.embedder)
+        res = run_beir(a.data, split=a.split, index_dir=a.index, k=a.k, embedder=emb, vec_bits=a.bits)
+    except (BeirError, ValueError, RuntimeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     print(json.dumps(res, indent=1))
@@ -214,11 +281,21 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--batch", type=int, default=64, help="papers per commit (group commit)")
     i.add_argument("--flush-docs", type=int, default=1000, help="buffer size that triggers a segment")
     i.add_argument("--skip-bad", action="store_true", help="skip unparseable lines instead of stopping")
+    i.add_argument("--embedder", help="also store meaning vectors, e.g. st:sentence-transformers/all-MiniLM-L6-v2 "
+                                      "(hash:64 = meaningless stand-in for tests)")
+    i.add_argument("--bits", type=int, default=1, help="quantization bits for vector codes (1-4)")
     i.set_defaults(fn=_cmd_index)
 
     s = sub.add_parser("search", help="BM25 keyword search")
     s.add_argument("--index", required=True)
     s.add_argument("-k", type=int, default=10)
+    s.add_argument("--mode", choices=["bm25", "vector", "hybrid"],
+                   help="default: hybrid if the index has vectors, else bm25")
+    s.add_argument("--embedder", help="embedder for the query (default: the one recorded in the index)")
+    s.add_argument("--cat", action="append", help="only papers in this category (repeat for any-of)")
+    s.add_argument("--year-from", type=int)
+    s.add_argument("--year-to", type=int)
+    s.add_argument("--nprobe", type=int, help="IVF clusters to scan (default: scan every code)")
     s.add_argument("query", nargs="+")
     s.set_defaults(fn=_cmd_search)
 
@@ -235,6 +312,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--readers", type=int, default=2)
     g.add_argument("--flush-docs", type=int, default=1000)
     g.add_argument("--skip-bad", action="store_true")
+    g.add_argument("--embedder", help="also store vectors (see `index --embedder`)")
+    g.add_argument("--bits", type=int, default=1)
     g.add_argument("--chaos", action="store_true", help="kill a random reader every 0.25 s and the writer twice")
     g.add_argument("--chaos-slow", type=float, default=0.02, help="per-paper delay so chaos has time to bite")
     g.add_argument("--verbose", action="store_true")
@@ -245,6 +324,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--split", default="test")
     b.add_argument("--index", help="empty folder to keep the index in (default: temporary, deleted)")
     b.add_argument("-k", type=int, default=100, help="results retrieved per query")
+    b.add_argument("--embedder", help="also evaluate vector + hybrid search, e.g. st:sentence-transformers/all-MiniLM-L6-v2 "
+                                      "(hash:64 is a meaningless stand-in)")
+    b.add_argument("--bits", type=int, default=1, help="quantization bits for the vector codes (1-4)")
     b.add_argument("--out", help="also save the JSON result here (e.g. docs/evidence/beir-scifact.json)")
     b.set_defaults(fn=_cmd_beir)
 

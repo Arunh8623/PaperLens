@@ -65,3 +65,40 @@ def test_cli_reports_a_locked_index(tmp_path):
     with IndexStore(ix):
         r = cli("search", "--index", str(ix), "graph")
         assert r.returncode == 1 and "locked" in r.stderr
+
+
+def test_cli_semantic_index_search_modes_and_filters(tmp_path, capsys):
+    from paperlens.cli import main
+    src = tmp_path / "p.jsonl"
+    assert main(["synth", "--n", "150", "--seed", "4", "--out", str(src)]) == 0
+    ix = str(tmp_path / "ix")
+    assert main(["index", "--index", ix, "--input", str(src), "--embedder", "hash:32", "--flush-docs", "60"]) == 0
+    capsys.readouterr()
+    assert main(["index-stats", "--index", ix]) == 0
+    stats = capsys.readouterr().out
+    assert "vector_dim" in stats and "hash:32" in stats
+    # default mode on an index with vectors is hybrid and explains each hit
+    assert main(["search", "--index", ix, "-k", "3", "checksum", "recovery"]) == 0
+    out = capsys.readouterr().out
+    assert "why: keyword rank" in out or "why: not found by keywords" in out
+    for mode in ("bm25", "vector", "hybrid"):
+        assert main(["search", "--index", ix, "--mode", mode, "-k", "3", "checksum", "recovery"]) == 0
+        assert capsys.readouterr().out.strip()
+    # a filter that nothing satisfies
+    assert main(["search", "--index", ix, "--cat", "cs.NOPE", "checksum"]) == 0
+    assert "no results" in capsys.readouterr().out
+    # a mismatching embedder is refused clearly
+    assert main(["search", "--index", ix, "--embedder", "hash:16", "checksum"]) == 1
+    assert "makes 16-number vectors, the index has 32" in capsys.readouterr().err
+
+
+def test_cli_vector_mode_on_an_index_without_vectors_is_a_clear_error(tmp_path, capsys):
+    from paperlens.cli import main
+    src = tmp_path / "p.jsonl"
+    main(["synth", "--n", "20", "--seed", "4", "--out", str(src)])
+    ix = str(tmp_path / "ix")
+    main(["index", "--index", ix, "--input", str(src)])
+    capsys.readouterr()
+    assert main(["search", "--index", ix, "--mode", "vector", "checksum"]) == 1
+    assert "no vectors" in capsys.readouterr().err
+    assert main(["search", "--index", ix, "checksum"]) == 0              # default falls back to bm25

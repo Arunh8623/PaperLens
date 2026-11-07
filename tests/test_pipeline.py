@@ -226,3 +226,16 @@ def test_index_with_other_vector_dimension_is_refused_clearly(tmp_path):
 def test_embedder_that_disagrees_with_dim_is_reported_not_retried_forever(tmp_path):
     with pytest.raises(PipelineError, match="reader cannot start"):
         run_pipeline(generate_papers(10, 34), cfg(tmp_path, embedder="hash:32"))
+
+
+def test_cli_ingest_with_embedder_then_vector_search(tmp_path, capsys):
+    from paperlens.cli import main
+    src = tmp_path / "p.jsonl"
+    assert main(["synth", "--n", "100", "--seed", "5", "--out", str(src)]) == 0
+    ix = str(tmp_path / "ix")
+    assert main(["ingest", "--index", ix, "--input", str(src), "--embedder", "hash:32", "--readers", "2",
+                 "--flush-docs", "40"]) == 0
+    capsys.readouterr()
+    assert main(["search", "--index", ix, "--mode", "vector", "-k", "3", "checksum", "recovery"]) == 0
+    assert capsys.readouterr().out.count("synth.") >= 3
+    assert main(["fsck", "--index", ix]) == 0

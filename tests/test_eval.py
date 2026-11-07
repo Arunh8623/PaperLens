@@ -137,3 +137,23 @@ def test_run_beir_cleans_up_its_temp_index(tmp_path, monkeypatch):
     monkeypatch.setenv("TMPDIR", str(tmp_path)); monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     run_beir(write_dataset(tmp_path / "ds"), log=lambda *_: None)
     assert not [p for p in os.listdir(tmp_path) if p.startswith("paperlens-beir-")]
+
+
+def test_run_beir_with_an_embedder_reports_three_modes(tmp_path):
+    from paperlens.vectors.embedders import HashEmbedder
+    res = run_beir(write_dataset(tmp_path / "ds"), log=lambda *_: None, embedder=HashEmbedder(16))
+    assert set(res["modes"]) == {"bm25", "vector", "hybrid"} and res["embedder"] == "hash:16"
+    assert res["metrics"] == res["modes"]["bm25"]["metrics"]                 # Phase 1 keys unchanged
+    for name, m in res["modes"].items():
+        assert 0.0 <= m["metrics"]["ndcg@10"] <= 1.0 and m["search_ms"]["p95"] >= 0
+    # the keyword side is still the hand-computed one from the Phase 1 test
+    assert res["modes"]["bm25"]["metrics"]["mrr@10"] == pytest.approx(2 / 3)
+    # q1 asks for "alpha": the paper literally contains it, so hash vectors find it first too
+    assert res["modes"]["vector"]["metrics"]["mrr@10"] > 0
+    assert isinstance(res["nfr6_hybrid_at_least_best_single"], bool)
+    assert res["index_bytes"] > run_beir(write_dataset(tmp_path / "ds2"), log=lambda *_: None)["index_bytes"]
+
+
+def test_run_beir_without_embedder_is_unchanged(tmp_path):
+    res = run_beir(write_dataset(tmp_path / "ds"), log=lambda *_: None)
+    assert set(res["modes"]) == {"bm25"} and res["nfr6_hybrid_at_least_best_single"] is None
