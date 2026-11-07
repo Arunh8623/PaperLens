@@ -15,6 +15,11 @@ Checks
                   per document: sum of tf == doclen (a strong cross-check);
                   total doclen matches meta; docs.off monotonic and ends at
                   docs.bin size; every stored paper parses and matches its key
+  vectors         (segments that have them) vectors.f16 / vectors.q / ivf.bin sizes agree
+                  with n and dim; valid flags match the non-zero rows; the quantized codes
+                  are re-computed from the half-precision vectors and must match (a tiny
+                  fraction may differ because of float rounding); IVF lists are a permutation
+                  of the valid docs; attrs.json agrees with the stored papers
   directory       unlisted seg-* / .tmp-* folders (WARNING: recovery removes them)
   diary           every file scanned; torn tail (WARNING: recovery cuts it);
                   entries well-formed, sequence strictly increasing
@@ -31,11 +36,12 @@ import zlib
 from dataclasses import dataclass, field
 
 from ..contracts.paper import PaperError, PaperRecord
+from .filters import paper_year
 from ..text.varint import VarintError, decode_postings
 from .diary import list_wals, scan_file
 from .lock import DirLock, IndexLocked
 from .manifest import ManifestError, read_manifest
-from .segment import DATA_FILES, Segment, SegmentError
+from .segment import DATA_FILES, OPTIONAL_FILES, Segment, SegmentError
 
 
 @dataclass
@@ -98,7 +104,7 @@ def _check_segment(path, name, rep) -> int:
     except (OSError, ValueError, KeyError) as e:
         err(f"meta.json unreadable ({e})")
         return 0
-    if set(files) != set(DATA_FILES):
+    if not set(DATA_FILES) <= set(files) or set(files) - set(DATA_FILES) - set(OPTIONAL_FILES):
         err(f"meta.json lists unexpected files {sorted(files)}")
     for fname, info in files.items():
         try:
@@ -155,9 +161,58 @@ def _check_segment(path, name, rep) -> int:
                 if p.key != seg.keys[i]:
                     err(f"doc {i}: stored paper key {p.key} != keys.txt {seg.keys[i]}")
                     break
+            if "attrs.json" in files:
+                years, cats = seg._load_attrs()
+                if len(years) != n or len(cats) != n:
+                    err("attrs.json has the wrong number of entries")
+                else:
+                    for i in range(n):
+                        p = seg.paper(i)
+                        if years[i] != paper_year(p.created, p.datestamp) or cats[i] != list(p.categories):
+                            err(f"doc {i}: attrs.json disagrees with the stored paper")
+                            break
+        if seg.has_vectors:
+            _check_vectors(seg, err)
         return n
     finally:
         seg.close()
+
+
+def _check_vectors(seg, err) -> None:
+    import numpy as np
+    from ..vectors import quant
+    try:
+        vm = seg.meta["vectors"]
+        n, dim, bits = seg.num_docs, vm["dim"], vm["bits"]
+        if "vectors.f16" not in seg.meta["files"] or "vectors.q" not in seg.meta["files"]:
+            err("meta.json has vectors info but not the vector files")
+            return
+        if seg.meta["files"]["vectors.f16"]["size"] != n * dim * 2:
+            err("vectors.f16 size is not n * dim * 2")
+            return
+        codes, d_o, inv, oc, valid, centroid, ivf = seg._load_vectors()
+        f16 = seg.all_vectors()
+        norms = np.linalg.norm(f16, axis=1)
+        if not np.array_equal(valid, norms > 0):
+            err("vectors.q valid flags do not match the non-zero rows of vectors.f16")
+        if int(valid.sum()) != vm["valid"]:
+            err("meta.json vector count differs from the valid flags")
+        x = np.where(norms[:, None] > 0, f16 / np.where(norms > 0, norms, 1.0)[:, None], 0.0).astype(np.float32)
+        enc = quant.encode(x, centroid, bits, quant.rotation_matrix(dim))
+        if valid.any():
+            v = valid
+            diff = np.unpackbits(enc["codes"][v] ^ codes[v]).sum() / max(1, v.sum() * dim * bits)
+            if diff > 1e-3:
+                err(f"quantized codes do not match vectors.f16 ({diff:.4%} of bits differ)")
+            if not np.allclose(enc["d_o"][v], d_o[v], atol=1e-3) or not np.allclose(enc["oc"][v], oc[v], atol=1e-3):
+                err("vectors.q correction numbers do not match vectors.f16")
+        if ivf is not None:
+            ids = np.sort(ivf.order)
+            if not np.array_equal(ids, np.nonzero(valid)[0]) or ivf.offsets[0] != 0 \
+                    or ivf.offsets[-1] != len(ivf.order) or np.any(np.diff(ivf.offsets.astype(np.int64)) < 0):
+                err("ivf.bin lists are not a consistent partition of the valid documents")
+    except (SegmentError, ValueError, KeyError, OSError) as e:
+        err(f"vectors unreadable ({e})")
 
 
 def _check_diary(index_dir, flushed, rep) -> None:
@@ -180,6 +235,10 @@ def _check_diary(index_dir, flushed, rep) -> None:
                     p = PaperRecord.from_dict(e["paper"])
                     if p.key != e["key"]:
                         raise ValueError("entry key does not match its paper")
+                    if e.get("vec"):
+                        import base64
+                        if len(base64.b64decode(e["vec"])) % 2:
+                            raise ValueError("diary vector has an odd byte count")
                 elif e["op"] != "delete":
                     raise ValueError(f"unknown op {e['op']!r}")
             except (ValueError, KeyError, TypeError, PaperError) as ex:

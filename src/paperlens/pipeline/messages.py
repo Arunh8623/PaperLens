@@ -80,6 +80,12 @@ class WriterDone:
     stats: dict
 
 
+@dataclass(frozen=True)
+class Fatal:
+    """A worker found a configuration problem no retry can fix (e.g. wrong vector dimension)."""
+    message: str
+
+
 class Stop:
     """Tell a worker to finish and exit (writer: commit + flush first)."""
 

@@ -28,11 +28,14 @@ import time
 from dataclasses import dataclass
 
 from ..contracts.paper import PaperRecord
+import numpy as np
+
 from ..store.index import IndexStore
 from ..text.tokenizer import paper_text, term_freqs
+from ..vectors.embedders import make_embedder
 from . import shm
-from .embed import embed_terms, vector_bytes, vector_crc
-from .messages import (Ack, AckBatch, Heartbeat, JobFailed, PaperJob, PaperReady, Ready,
+from .embed import vector_crc
+from .messages import (Ack, AckBatch, Fatal, Heartbeat, JobFailed, PaperJob, PaperReady, Ready,
                        Stop, WriterDone)
 
 POISON_EXIT_CODE = 66          # distinctive exit code for injected worker deaths
@@ -86,10 +89,18 @@ class _Beater(threading.Thread):
 
 # ------------------------------------------------------------------------------ reader
 def reader_main(wid, inc, arena_name, dim, job_conn, res_conn, faults, limiter,
-                hb_interval, busy_timeout):
+                hb_interval, busy_timeout, embedder_spec="hash"):
     chan = _Chan(res_conn)
     if faults.die_at_start_readers:
         os._exit(POISON_EXIT_CODE)
+    try:
+        embedder = make_embedder(f"hash:{dim}" if embedder_spec == "hash" else embedder_spec)
+        if embedder.dim != dim:
+            raise ValueError(f"embedder {embedder.name} makes {embedder.dim}-number vectors but the "
+                             f"pipeline is configured for dim={dim}")
+    except Exception as e:                              # configuration problem: tell the supervisor, do not loop
+        chan.send(Fatal(f"reader cannot start: {type(e).__name__}: {e}"))
+        return
     arena = shm.attach_arena(arena_name)
     beater = _Beater(chan, "reader", wid, inc, hb_interval, busy_timeout)
     beater.start()
@@ -104,7 +115,7 @@ def reader_main(wid, inc, arena_name, dim, job_conn, res_conn, faults, limiter,
                 break
             beater.busy_since = time.monotonic()
             try:
-                chan.send(_process(msg, wid, arena, arena_name, dim, faults, limiter))
+                chan.send(_process(msg, wid, arena, arena_name, dim, faults, limiter, embedder))
             except Exception as e:                         # the worker survives a bad paper
                 permanent = isinstance(e, _NoText)
                 chan.send(JobFailed(msg.job_id, f"{type(e).__name__}: {e}", permanent))
@@ -119,7 +130,7 @@ class _NoText(ValueError):
     pass
 
 
-def _process(job: PaperJob, wid, arena, arena_name, dim, f: Faults, limiter) -> PaperReady:
+def _process(job: PaperJob, wid, arena, arena_name, dim, f: Faults, limiter, embedder) -> PaperReady:
     paper: PaperRecord = job.paper
     first = job.attempt == 0
     aid = paper.arxiv_id
@@ -140,7 +151,7 @@ def _process(job: PaperJob, wid, arena, arena_name, dim, f: Faults, limiter) -> 
     tf, dl = term_freqs(paper_text(paper.title, paper.abstract))
     if not tf:
         raise _NoText("paper has no indexable text")
-    raw = vector_bytes(embed_terms(tf, dim))
+    raw = np.ascontiguousarray(embedder.embed_paper(paper, tf), dtype=np.float32).tobytes()
     crc = vector_crc(raw)
     shm.write_slot(arena, job.slot, dim, raw)
     if first and aid in f.corrupt_vector_once_on_key:      # simulate a torn / stale slot
@@ -151,11 +162,18 @@ def _process(job: PaperJob, wid, arena, arena_name, dim, f: Faults, limiter) -> 
 
 # ------------------------------------------------------------------------------ writer
 def writer_main(inc, index_path, flush_docs, batch_max, job_conn, res_conn, crash_env,
-                hb_interval, busy_timeout):
+                hb_interval, busy_timeout, dim=0, store_vectors=True, vec_bits=1, ivf_min_docs=4096,
+                embedder_name=""):
     for k, v in crash_env.items():                         # per-incarnation fault injection
         os.environ[k] = v
     chan = _Chan(res_conn)
-    store = IndexStore(index_path, flush_docs=flush_docs)  # runs recovery; may raise IndexLocked
+    store = IndexStore(index_path, flush_docs=flush_docs, vec_bits=vec_bits,   # runs recovery; may raise IndexLocked
+                       ivf_min_docs=ivf_min_docs, embedder_name=embedder_name)
+    if store_vectors and store.vec_dim and store.vec_dim != dim:
+        chan.send(Fatal(f"index {index_path} stores {store.vec_dim}-number vectors but this run makes "
+                        f"{dim}-number vectors; use the same embedder or a new index folder"))
+        store.close()
+        return
     beater = _Beater(chan, "writer", 0, inc, hb_interval, busy_timeout)
     beater.start()
     chan.send(Ready("writer", 0, inc, os.getpid(), {"recovery": dict(store.recovery)}))
@@ -180,7 +198,7 @@ def writer_main(inc, index_path, flush_docs, batch_max, job_conn, res_conn, cras
                 if isinstance(m, Stop):
                     stopping = True
                 elif isinstance(m, PaperReady):
-                    acks.append(_store_one(store, m, arenas))
+                    acks.append(_store_one(store, m, arenas, store_vectors))
             if acks:
                 store.commit()                             # ONE fsync for the whole batch
                 stats["commits"] += 1
@@ -199,7 +217,7 @@ def writer_main(inc, index_path, flush_docs, batch_max, job_conn, res_conn, cras
         store.close()
 
 
-def _store_one(store: IndexStore, m: PaperReady, arenas: dict) -> Ack:
+def _store_one(store: IndexStore, m: PaperReady, arenas: dict, store_vectors: bool = True) -> Ack:
     try:
         arena = arenas.get(m.shm_name)
         if arena is None:
@@ -211,7 +229,8 @@ def _store_one(store: IndexStore, m: PaperReady, arenas: dict) -> Ack:
     if got != m.vec_crc:
         return Ack(m.job_id, m.key, -2, "bad_vector: crc mismatch", got)   # stale/torn slot: retry
     try:
-        res = store.put(m.paper, precomputed=(m.term_freqs, m.doc_len))
+        res = store.put(m.paper, precomputed=(m.term_freqs, m.doc_len),
+                        vector=np.frombuffer(raw, dtype=np.float32) if store_vectors else None)
     except ValueError as e:
         return Ack(m.job_id, m.key, -2, f"permanent: {e}", got)
     if res.outcome in ("insert", "replace"):

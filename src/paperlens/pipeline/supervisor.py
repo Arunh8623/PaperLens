@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from multiprocessing import connection
 
 from . import shm
-from .messages import (AckBatch, Heartbeat, JobFailed, PaperJob, PaperReady, Ready, Stop,
+from .messages import (AckBatch, Fatal, Heartbeat, JobFailed, PaperJob, PaperReady, Ready, Stop,
                        WriterDone)
 from .workers import Faults, reader_main, writer_main
 
@@ -55,6 +55,10 @@ class PipelineConfig:
     index_path: str
     n_readers: int = 2
     dim: int = 64
+    embedder: str = "hash"             # "hash" = hash:<dim>; or hash:N / st:<model> (see vectors/embedders.py)
+    store_vectors: bool = True         # persist the verified vectors in the index (Phase 3)
+    vec_bits: int = 1                  # quantization bits for new segments
+    ivf_min_docs: int = 4096
     max_inflight_per_reader: int = 8
     max_outstanding: int = 128
     writer_batch: int = 64
@@ -180,7 +184,7 @@ class Supervisor:
         res_r, res_w = self.ctx.Pipe(duplex=False)
         if role == "reader":
             args = (wid, inc, self.arenas[wid].name, cfg.dim, job_r, res_w, cfg.faults,
-                    cfg.reader_limiter, cfg.heartbeat_interval, cfg.job_timeout)
+                    cfg.reader_limiter, cfg.heartbeat_interval, cfg.job_timeout, cfg.embedder)
             proc = self.ctx.Process(target=reader_main, args=args, daemon=True,
                                     name=f"paperlens-reader-{wid}.{inc}")
         else:
@@ -189,7 +193,9 @@ class Supervisor:
                 crash_env = {"PAPERLENS_CRASH_AT": cfg.writer_crash_at,
                              "PAPERLENS_CRASH_AFTER": str(cfg.writer_crash_after)}
             args = (inc, str(cfg.index_path), cfg.flush_docs, cfg.writer_batch, job_r, res_w,
-                    crash_env, cfg.heartbeat_interval, cfg.writer_job_timeout)
+                    crash_env, cfg.heartbeat_interval, cfg.writer_job_timeout, cfg.dim,
+                    cfg.store_vectors, cfg.vec_bits, cfg.ivf_min_docs,
+                    f"hash:{cfg.dim}" if cfg.embedder == "hash" else cfg.embedder)
             proc = self.ctx.Process(target=writer_main, args=args, daemon=True,
                                     name=f"paperlens-writer.{inc}")
         proc.start()
@@ -310,6 +316,8 @@ class Supervisor:
         w.last_seen = time.monotonic()
         if isinstance(msg, Heartbeat):
             return
+        if isinstance(msg, Fatal):
+            raise PipelineError(msg.message)
         if isinstance(msg, Ready):
             w.ready = True
             self.startup_fails[w.role] = 0

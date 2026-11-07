@@ -74,7 +74,7 @@ def test_tmp_dir_is_not_final_and_publish_moves_it(tmp_path):
 def test_meta_is_written_last_and_covers_all_files(tmp_path):
     path = build(tmp_path, make_docs(5))
     meta = json.load(open(os.path.join(path, "meta.json")))
-    assert set(meta["files"]) == set(sg.DATA_FILES)
+    assert set(meta["files"]) == set(sg.DATA_FILES) | {"attrs.json"}      # Phase 3: attrs.json is always written
     for f, info in meta["files"].items():
         assert os.path.getsize(os.path.join(path, f)) == info["size"]
     mtimes = {f: os.stat(os.path.join(path, f)).st_mtime_ns for f in os.listdir(path)}

@@ -16,6 +16,7 @@ import time
 
 from ..store.index import IndexStore
 from ..synth import generate_papers, messy_stream
+from ..vectors.embedders import HashEmbedder
 
 
 def make_stream(n: int, seed: int, kind: str):
@@ -27,7 +28,10 @@ def main(argv) -> int:
     index, ackfile, n, seed, kind, batch, flush_every = argv[:7]
     n, seed, batch, flush_every = int(n), int(seed), int(batch), int(flush_every)
     pause = float(argv[7]) if len(argv) > 7 else 0.0
-    skip_acked = len(argv) > 8 and argv[8] == "skip"
+    flags = set(argv[8:])
+    skip_acked = "skip" in flags
+    with_vec = "vec" in flags                           # also store a (hash) vector with every paper
+    emb = HashEmbedder(16) if with_vec else None
     stream = make_stream(n, seed, kind)
     if skip_acked:
         # Like a supervisor: only resend what was never acknowledged.
@@ -36,13 +40,13 @@ def main(argv) -> int:
         except FileNotFoundError:
             done = set()
         stream = [p for p in stream if p.key not in done]
-    st = IndexStore(index, flush_docs=10**9)             # we flush explicitly, to control timing
+    st = IndexStore(index, flush_docs=10**9, ivf_min_docs=30 if with_vec else 0)   # we flush explicitly, to control timing
     with open(ackfile, "a", encoding="utf-8", newline="\n") as ack:
         since_flush = 0
         for i in range(0, len(stream), batch):
             chunk = stream[i:i + batch]
             for p in chunk:
-                st.put(p)
+                st.put(p, vector=emb.embed_paper(p) if with_vec else None)
             st.commit()
             for p in chunk:                               # promised durable only now
                 ack.write(p.key + "\n")

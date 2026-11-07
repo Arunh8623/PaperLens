@@ -11,6 +11,9 @@ from paperlens.store.crashpoints import KNOWN_POINTS
 from paperlens.store.fsck import fsck
 from paperlens.store.index import IndexStore
 from paperlens.synth import expected_final, generate_papers, messy_stream
+from paperlens.vectors.embedders import HashEmbedder
+from tests.crashlib import expected_vector
+import numpy as np
 
 
 def cfg(tmp_path, **kw):
@@ -28,6 +31,8 @@ def check_index(path, stream, dead=()):
         for a, p in want.items():
             assert st.live[a] == p.key, a
             assert st.get(a) == p
+            # the vector that travelled through shared memory arrived intact and belongs to THIS version
+            assert np.array_equal(st.get_vector(a), expected_vector(p, 16)), a
     rep = fsck(path)
     assert rep.ok, rep.errors
 
@@ -188,3 +193,36 @@ def test_cli_ingest_then_search(tmp_path, capsys):
     assert main(["fsck", "--index", str(tmp_path / "ix")]) == 0
     assert main(["ingest", "--index", str(tmp_path / "ix"), "--input", str(src)]) == 0   # re-run: all duplicates
     assert "{'duplicate': 120}" in capsys.readouterr().out
+
+
+def test_vectors_are_searchable_after_a_pipeline_run(tmp_path):
+    papers = generate_papers(200, 30)
+    run_pipeline(papers, cfg(tmp_path, flush_docs=60, ivf_min_docs=40))
+    E = HashEmbedder(16)
+    with IndexStore(tmp_path / "ix") as st:
+        assert st.vec_dim == 16 and st.stats()["embedder"] == "hash:16"
+        for p in papers[:10]:
+            assert st.search_vector(E.embed_paper(p), k=1, exact=True)[0].arxiv_id == p.arxiv_id
+            assert st.search_vector(E.embed_paper(p), k=1, nprobe=4)[0].score > 0.99
+    assert fsck(tmp_path / "ix").ok
+
+
+def test_store_vectors_can_be_switched_off(tmp_path):
+    papers = generate_papers(40, 31)
+    rep = run_pipeline(papers, cfg(tmp_path, store_vectors=False))
+    assert not rep.dead_letters
+    with IndexStore(tmp_path / "ix") as st:
+        assert st.vec_dim == 0 and len(st.live) == 40
+
+
+def test_index_with_other_vector_dimension_is_refused_clearly(tmp_path):
+    with IndexStore(tmp_path / "ix") as st:
+        p = generate_papers(1, 32)[0]
+        st.put(p, vector=HashEmbedder(24).embed_paper(p))
+    with pytest.raises(PipelineError, match="stores 24-number vectors"):
+        run_pipeline(generate_papers(10, 33), cfg(tmp_path))
+
+
+def test_embedder_that_disagrees_with_dim_is_reported_not_retried_forever(tmp_path):
+    with pytest.raises(PipelineError, match="reader cannot start"):
+        run_pipeline(generate_papers(10, 34), cfg(tmp_path, embedder="hash:32"))

@@ -31,6 +31,13 @@ Deletes: a delete (or the replacement of an old version) kills the live copy.
 If the copy sits in a segment we cannot edit it, so the key is written to the
 `deletes.json` of the NEXT flushed segment, and applies to all OLDER segments.
 
+Vectors (Phase 3): put(paper, vector=...) also stores the paper's meaning vector.
+It is logged in the diary as half-precision bytes (so a crash loses nothing), kept in
+the buffer, and written into the segment (vectors.f16 + quantized vectors.q, optional
+ivf.bin) in the SAME atomic flush. search_vector() scans the cheap quantized codes of
+every segment to find candidates and then RE-SCORES them with the half-precision
+copy; search_hybrid() fuses BM25 and vector ranks with Reciprocal Rank Fusion.
+
 Ranking: BM25, k1=1.2, b=0.75, Lucene-style idf ln(1+(N-df+0.5)/(df+0.5)).
 LIKE LUCENE, N, df and avgdl still count deleted documents until compaction
 (Phase 5); deleted documents are never returned. Query terms are de-duplicated
@@ -38,6 +45,7 @@ LIKE LUCENE, N, df and avgdl still count deleted documents until compaction
 """
 from __future__ import annotations
 
+import base64
 import heapq
 import json
 import math
@@ -45,8 +53,13 @@ import os
 import shutil
 from typing import NamedTuple
 
+import numpy as np
+
 from ..contracts.paper import PaperRecord, decide, split_key
 from ..text.tokenizer import paper_text, term_freqs, tokenize
+from ..vectors.fusion import rrf
+from ..vectors.quant import unit
+from .filters import paper_year
 from .crashpoints import crashpoint
 from .diary import DiaryWriter, list_wals, recover_tail, scan_file, wal_name
 from .fsutil import fsync_dir, retry_fs
@@ -73,16 +86,34 @@ class Hit(NamedTuple):
     arxiv_id: str
 
 
+class HybridHit(NamedTuple):
+    score: float                 # fused RRF score
+    key: str
+    arxiv_id: str
+    bm25_rank: object            # 1-based rank in the keyword list, or None
+    vec_rank: object             # 1-based rank in the vector list, or None
+    bm25_score: object
+    vec_score: object
+
+
 class _BufDoc(NamedTuple):
     paper: PaperRecord
     tf: dict
     dl: int
+    vec: object = None           # half-precision bytes or None
 
 
 class IndexStore:
-    def __init__(self, path, flush_docs: int = 1000, allow_tokenizer_mismatch: bool = False):
+    def __init__(self, path, flush_docs: int = 1000, allow_tokenizer_mismatch: bool = False,
+                 vec_bits: int = 1, ivf_min_docs: int = 4096, embedder_name: str = ""):
         self.path = os.fspath(path)
         self.flush_docs = flush_docs
+        self.vec_bits = vec_bits                 # quantization bits for NEW segments (each segment records its own)
+        self.ivf_min_docs = ivf_min_docs         # segments with >= this many vectors get an IVF index (0 = never)
+        self.embedder_name = embedder_name       # recorded in segment meta so search knows how to embed queries
+        self.vec_dim = 0                         # 0 = this index holds no vectors (yet)
+        self._buf_ver = 0
+        self._buf_vec_cache = None
         # True only for READING an old index so it can be reindexed; search results would be wrong.
         self.allow_tokenizer_mismatch = allow_tokenizer_mismatch
         self.seg_root = os.path.join(self.path, "segments")
@@ -139,6 +170,12 @@ class IndexStore:
                 self.segments.append(Segment.open(path, check_tokenizer=not self.allow_tokenizer_mismatch))
             except SegmentError as e:
                 raise IndexCorrupt(str(e)) from e
+        for seg in self.segments:
+            if seg.has_vectors:
+                if self.vec_dim and seg.vec_dim != self.vec_dim:
+                    raise IndexCorrupt(f"{seg.name}: vector dimension {seg.vec_dim} differs from {self.vec_dim}")
+                self.vec_dim = seg.vec_dim
+                self.embedder_name = self.embedder_name or seg.meta["vectors"].get("embedder", "")
         self._rebuild_from_segments()
         self.seq = self.manifest.last_flushed_seq
         self._replay_diary(stats)
@@ -183,7 +220,13 @@ class IndexStore:
                 if seq <= self.seq:
                     raise IndexCorrupt(f"{path}: diary sequence goes backwards at {seq}")
                 if op == "put":
-                    self._apply_put(PaperRecord.from_dict(e["paper"]))
+                    vec = None
+                    if e.get("vec"):
+                        vec = base64.b64decode(e["vec"])
+                        if len(vec) % 2 or (self.vec_dim and len(vec) // 2 != self.vec_dim):
+                            raise IndexCorrupt(f"{path}: diary vector has a bad length")
+                        self.vec_dim = self.vec_dim or len(vec) // 2
+                    self._apply_put(PaperRecord.from_dict(e["paper"]), vec=vec)
                 elif op == "delete":
                     self._apply_delete(key)
                 else:
@@ -205,12 +248,13 @@ class IndexStore:
         fsync_dir(self.wal_dir)
 
     # ------------------------------------------------------------ state changes
-    def _apply_put(self, paper: PaperRecord, precomputed=None) -> None:
+    def _apply_put(self, paper: PaperRecord, precomputed=None, vec=None) -> None:
         old = self.live.get(paper.arxiv_id)
         if old is not None:
             self._kill(old)
         tf, dl = precomputed if precomputed is not None else term_freqs(paper_text(paper.title, paper.abstract))
-        self.buf[paper.key] = _BufDoc(paper, tf, dl)
+        self._buf_ver += 1
+        self.buf[paper.key] = _BufDoc(paper, tf, dl, vec)
         for term, c in tf.items():
             self.buf_inv.setdefault(term, {})[paper.key] = c
         self.live[paper.arxiv_id] = paper.key
@@ -224,6 +268,7 @@ class IndexStore:
         """Remove the LIVE copy of `key` (buffer first, else newest live segment copy)."""
         doc = self.buf.pop(key, None)
         if doc is not None:
+            self._buf_ver += 1
             for term in doc.tf:
                 postings = self.buf_inv[term]
                 del postings[key]
@@ -237,10 +282,21 @@ class IndexStore:
                 return
 
     # ------------------------------------------------------------ public write API
-    def put(self, paper: PaperRecord, precomputed=None) -> PutResult:
+    def _vector_to_f16(self, vector) -> bytes:
+        v = np.asarray(vector, dtype=np.float32)
+        if v.ndim != 1 or v.size < 2:
+            raise ValueError("vector must be a 1-D sequence of numbers")
+        if self.vec_dim and v.size != self.vec_dim:
+            raise ValueError(f"vector has {v.size} numbers but this index uses {self.vec_dim}")
+        return unit(v).astype("<f2").tobytes()          # stored unit-length: cosine = dot product
+
+    def put(self, paper: PaperRecord, precomputed=None, vector=None) -> PutResult:
         """precomputed=(term_freqs, doc_len) lets a reader process do the tokenizing so the
         single writer does not (pipeline, Phase 2). It is checked, never trusted blindly.
-        Crash replay always recomputes from the paper text."""
+        Crash replay always recomputes from the paper text.
+        vector=sequence of floats (the paper's meaning vector): normalised to unit length and
+        stored as half precision; the first vector fixes this index's dimension."""
+        vec = self._vector_to_f16(vector) if vector is not None else None
         if precomputed is not None:
             tf, dl = precomputed
             if (not tf or sum(tf.values()) != dl or any(c < 1 for c in tf.values())):
@@ -250,9 +306,14 @@ class IndexStore:
         if outcome in ("duplicate", "stale"):
             return PutResult(outcome, 0)
         seq = self.seq + 1
-        self._log({"seq": seq, "op": "put", "key": paper.key, "paper": paper.to_dict()})
+        entry = {"seq": seq, "op": "put", "key": paper.key, "paper": paper.to_dict()}
+        if vec is not None:
+            entry["vec"] = base64.b64encode(vec).decode("ascii")
+        self._log(entry)
         self.seq = seq
-        self._apply_put(paper, precomputed)
+        if vec is not None:
+            self.vec_dim = self.vec_dim or len(vec) // 2
+        self._apply_put(paper, precomputed, vec)
         return PutResult(outcome, seq)
 
     def delete(self, arxiv_id: str) -> bool:
@@ -281,9 +342,13 @@ class IndexStore:
             return None
         self._writer.commit()                              # nothing unlogged may be flushed
         name = segment_name(self._next_segment_number())
-        docs = [(k, d.paper, d.tf, d.dl) for k, d in self.buf.items()]
+        docs = [(k, d.paper, d.tf, d.dl, d.vec) for k, d in self.buf.items()]
         tomb = sorted(self.pending_tomb)
-        tmp = write_segment_tmp(self.seg_root, name, docs, tomb)
+        vec_cfg = None
+        if self.vec_dim and any(d.vec is not None for d in self.buf.values()):
+            vec_cfg = {"dim": self.vec_dim, "bits": self.vec_bits, "ivf_min_docs": self.ivf_min_docs,
+                       "embedder": self.embedder_name}
+        tmp = write_segment_tmp(self.seg_root, name, docs, tomb, vec_cfg)
         crashpoint("flush_after_tmp_written")
         publish_segment(self.seg_root, tmp, name)
         crashpoint("flush_after_segment_rename")
@@ -332,6 +397,22 @@ class IndexStore:
     def live_keys(self) -> set:
         return set(self.live.values())
 
+    def get_vector(self, arxiv_id: str):
+        """The stored (half-precision, unit) vector of the live version as float32, or None."""
+        key = self.live.get(arxiv_id)
+        if key is None:
+            return None
+        if key in self.buf:
+            v = self.buf[key].vec
+            return None if v is None else np.frombuffer(v, dtype="<f2").astype(np.float32)
+        for si, local in reversed(self.key_loc[key]):
+            if local not in self.dead[si]:
+                seg = self.segments[si]
+                if not seg.has_vectors or not seg.valid_vectors()[local]:
+                    return None
+                return seg.vector_rows([local])[0]
+        return None
+
     def stats(self) -> dict:
         return {
             "live_docs": len(self.live),
@@ -342,17 +423,25 @@ class IndexStore:
             "last_seq": self.seq,
             "generation": self.manifest.generation,
             "last_flushed_seq": self.manifest.last_flushed_seq,
+            "vector_dim": self.vec_dim,
+            "embedder": self.embedder_name,
             "recovery": dict(self.recovery),
         }
 
-    def search(self, query: str, k=10) -> list:
-        """BM25 over buffer + all segments. k=None returns every matching live doc."""
+    def _buf_ok(self, doc, flt) -> bool:
+        return flt is None or flt.empty or flt.matches(paper_year(doc.paper.created, doc.paper.datestamp),
+                                                       doc.paper.categories)
+
+    def search(self, query: str, k=10, flt=None) -> list:
+        """BM25 over buffer + all segments. k=None returns every matching live doc.
+        flt (store.filters.Filter) keeps only papers passing the category/year filter."""
         terms = list(dict.fromkeys(tokenize(query)))
         n_docs = sum(s.num_docs for s in self.segments) + len(self.buf)
         if not terms or n_docs == 0:
             return []
         total_len = sum(s.total_doclen for s in self.segments) + sum(d.dl for d in self.buf.values())
         avgdl = total_len / n_docs
+        masks = [s.filter_mask(flt) for s in self.segments]
         scores: dict = {}
         for term in terms:
             df = sum(s.df(term) for s in self.segments) + len(self.buf_inv.get(term, ()))
@@ -361,20 +450,110 @@ class IndexStore:
             idf = math.log(1.0 + (n_docs - df + 0.5) / (df + 0.5))
             for si, seg in enumerate(self.segments):
                 dead = self.dead[si]
+                mask = masks[si]
                 for local, tf in seg.postings(term):
-                    if local in dead:
+                    if local in dead or (mask is not None and not mask[local]):
                         continue
                     dl = seg.doclens[local]
                     s = idf * tf * (K1 + 1.0) / (tf + K1 * (1.0 - B + B * dl / avgdl))
                     key = seg.keys[local]
                     scores[key] = scores.get(key, 0.0) + s
             for key, tf in self.buf_inv.get(term, {}).items():
+                if not self._buf_ok(self.buf[key], flt):
+                    continue
                 dl = self.buf[key].dl
                 s = idf * tf * (K1 + 1.0) / (tf + K1 * (1.0 - B + B * dl / avgdl))
                 scores[key] = scores.get(key, 0.0) + s
         order = lambda kv: (-kv[1], kv[0])                 # score desc, then key: deterministic
         ranked = sorted(scores.items(), key=order) if k is None else heapq.nsmallest(k, scores.items(), key=order)
         return [Hit(s, key, split_key(key)[0]) for key, s in ranked]
+
+    # ------------------------------------------------------------ vector + hybrid search
+    def _buffer_vectors(self):
+        """(keys, float32 matrix) of buffered docs that have a vector; cached until the buffer changes."""
+        if self._buf_vec_cache is None or self._buf_vec_cache[0] != self._buf_ver:
+            keys = [k for k, d in self.buf.items() if d.vec is not None]
+            mat = (np.stack([np.frombuffer(self.buf[k].vec, dtype="<f2") for k in keys]).astype(np.float32)
+                   if keys else np.zeros((0, self.vec_dim), dtype=np.float32))
+            self._buf_vec_cache = (self._buf_ver, keys, mat)
+        return self._buf_vec_cache[1], self._buf_vec_cache[2]
+
+    def search_vector(self, qvec, k=10, flt=None, pool=None, nprobe=None, exact=False) -> list:
+        """Nearest papers by cosine similarity. Hit.score is the EXACT half-precision cosine.
+
+        Normal mode: scan the quantized codes of each segment (all docs, or only the `nprobe`
+        nearest IVF clusters when a segment has an IVF index), keep the best `pool` candidates
+        (default max(10k, 100)), then re-score those with the half-precision vectors.
+        exact=True skips the codes and scores every live vector exactly (the oracle for tests)."""
+        if self.vec_dim == 0 or (k is not None and k <= 0):
+            return []
+        q = unit(qvec)
+        if q.size != self.vec_dim:
+            raise ValueError(f"query vector has {q.size} numbers but this index uses {self.vec_dim}")
+        if k is None:
+            exact = True
+        pool = pool or max(10 * (k or 0), 100)
+        seg_cands = []                         # (estimated score, segment index, local id)
+        for si, seg in enumerate(self.segments):
+            if not seg.has_vectors:
+                continue
+            ok = seg.valid_vectors().copy()
+            if self.dead[si]:
+                ok[list(self.dead[si])] = False
+            fm = seg.filter_mask(flt)
+            if fm is not None:
+                ok &= fm
+            ids = None
+            if nprobe and not exact:
+                ids = seg.ivf_candidates(q, nprobe)
+                if ids is not None:
+                    ids = ids[ok[ids]]
+            if ids is None:
+                ids = np.nonzero(ok)[0]
+            if len(ids) == 0:
+                continue
+            if exact:
+                sc = seg.vector_rows(ids) @ q
+            else:
+                sc = seg.estimate_scores(q, ids)
+            keep = np.argsort(-sc)[:pool] if len(sc) > pool and not exact else np.arange(len(sc))
+            for i in keep:
+                seg_cands.append((float(sc[i]), si, int(ids[i])))
+        if not exact and len(seg_cands) > pool:
+            seg_cands = heapq.nlargest(pool, seg_cands, key=lambda t: t[0])
+        results = []                           # (exact score, key)
+        by_seg: dict = {}
+        for _s, si, local in seg_cands:
+            by_seg.setdefault(si, []).append(local)
+        for si, locals_ in by_seg.items():     # re-score candidates with the half-precision copy
+            seg = self.segments[si]
+            exact_scores = seg.vector_rows(locals_) @ q
+            results += [(float(s), seg.keys[l]) for s, l in zip(exact_scores, locals_)]
+        keys, mat = self._buffer_vectors()
+        if keys:
+            bs = mat @ q
+            results += [(float(s), key) for s, key in zip(bs, keys)
+                        if self._buf_ok(self.buf[key], flt)]
+        results.sort(key=lambda t: (-t[0], t[1]))
+        if k is not None:
+            results = results[:k]
+        return [Hit(s, key, split_key(key)[0]) for s, key in results]
+
+    def search_hybrid(self, query: str, qvec, k=10, flt=None, depth=100, rrf_k=60,
+                      nprobe=None, pool=None) -> list:
+        """BM25 list + vector list, merged by Reciprocal Rank Fusion (default k=60).
+        Each HybridHit says where the paper ranked in each list (its 'reason')."""
+        bm = self.search(query, k=depth, flt=flt)
+        vc = self.search_vector(qvec, k=depth, flt=flt, nprobe=nprobe, pool=pool) if qvec is not None else []
+        bm_by = {h.key: (i, h.score) for i, h in enumerate(bm, 1)}
+        vc_by = {h.key: (i, h.score) for i, h in enumerate(vc, 1)}
+        fused = rrf([[h.key for h in bm], [h.key for h in vc]], k=rrf_k)
+        out = []
+        for key, score, (rb, rv) in fused[:k] if k is not None else fused:
+            out.append(HybridHit(score, key, split_key(key)[0], rb, rv,
+                                 bm_by[key][1] if key in bm_by else None,
+                                 vc_by[key][1] if key in vc_by else None))
+        return out
 
     # ------------------------------------------------------------ lifecycle
     def _release_everything(self) -> None:

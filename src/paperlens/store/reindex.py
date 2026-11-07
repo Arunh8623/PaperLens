@@ -23,6 +23,25 @@ class ReindexError(Exception):
     pass
 
 
+def _embedder_of(src) -> str:
+    import json
+    import os
+    try:
+        with open(os.path.join(src, "MANIFEST"), "rb"):
+            pass
+        seg_root = os.path.join(src, "segments")
+        for name in sorted(os.listdir(seg_root), reverse=True):
+            meta = os.path.join(seg_root, name, "meta.json")
+            if os.path.exists(meta):
+                with open(meta, "rb") as f:
+                    v = json.loads(f.read().decode("utf-8")).get("vectors")
+                if v:
+                    return v.get("embedder", "")
+    except OSError:
+        pass
+    return ""
+
+
 def reindex(src, dst, flush_docs: int = 5000, batch: int = 256, log=print) -> dict:
     src, dst = os.fspath(src), os.fspath(dst)
     if os.path.abspath(src) == os.path.abspath(dst):
@@ -31,10 +50,11 @@ def reindex(src, dst, flush_docs: int = 5000, batch: int = 256, log=print) -> di
         raise ReindexError(f"{dst} already holds an index; choose a new folder")
     if not os.path.exists(os.path.join(src, "MANIFEST")) and not os.path.isdir(os.path.join(src, "wal")):
         raise ReindexError(f"{src} does not look like an index")
-    with IndexStore(src, allow_tokenizer_mismatch=True) as old, IndexStore(dst, flush_docs=flush_docs) as new:
+    with IndexStore(src, allow_tokenizer_mismatch=True) as old, \
+            IndexStore(dst, flush_docs=flush_docs, embedder_name=_embedder_of(src)) as new:
         ids = sorted(old.live)
         for n, arxiv_id in enumerate(ids, 1):
-            new.put(old.get(arxiv_id))
+            new.put(old.get(arxiv_id), vector=old.get_vector(arxiv_id))        # vectors are kept, not recomputed
             if n % batch == 0:
                 new.commit()
         new.commit()
