@@ -11,9 +11,9 @@ so the evidence is honest: the git history shows who did the work.
 |---|---|---|---|---|
 | E1 OS Process & Ingestion | MAJOR | `pipeline/` | Arun (+ AI) | Phase 2 built (Linux-tested) |
 | E1 harvester (arXiv/OpenAlex) | SUPPORTING | `harvest/` | Arun (+ AI) | arXiv built; OpenAlex Phase 4 |
-| E2 Persistent Hybrid Index | MAJOR | `store/` | Arun (+ AI) | keyword index built (Phase 1a); vectors/compaction later |
+| E2 Persistent Hybrid Index | MAJOR | `store/` | Arun (+ AI) | keyword index + vector storage built (Phase 1a, 3); compaction later |
 | E3 Retrieval, keyword side | MAJOR | `text/`, `eval/` | Arun (+ AI) | BM25 + toy tokenizer built; eval Phase 1b |
-| E3 Retrieval, semantic + graph | MAJOR | `vectors/`, `graph/` | Arun (+ AI) | Phase 3-4, not started |
+| E3 Retrieval, semantic + graph | MAJOR | `vectors/`, `graph/` | Arun (+ AI) | Phase 3 built (Linux-tested, stand-in embedder); citation graph (Phase 4) not started |
 | Shared contracts | shared | `contracts/` | Arun (+ AI) | built |
 | Pre-trained embedding models | SUPPORTING | - | - | we do not train models |
 

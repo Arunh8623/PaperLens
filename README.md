@@ -104,6 +104,21 @@ python bench\pipeline_speedup.py --papers 4000 --burn-ms 5 --out docs\evidence\s
 every paper exactly once (`fsck` plus a search to check). The benchmark header explains why
 `--burn-ms` exists (simulated model work) and what the numbers do and do not mean.
 
+## Semantic and hybrid search (Phase 3)
+
+```powershell
+python -m pip install sentence-transformers          # real meaning vectors (downloads a model on first use)
+python -m paperlens index --index data\ixs --input data\arxiv_cs.jsonl --embedder st:sentence-transformers/all-MiniLM-L6-v2
+python -m paperlens search --index data\ixs "robust learning with noisy labels"                 # hybrid (default)
+python -m paperlens search --index data\ixs --mode vector --cat cs.LG --year-from 2020 "noisy labels"
+python -m paperlens search --index data\ixs --mode bm25 "noisy labels"
+python bench\recall_vs_bits.py --index data\ixs --queries 300 --out docs\evidence\recall-bits-real.json
+python -m paperlens beir --data data\scifact --embedder st:sentence-transformers/all-MiniLM-L6-v2 --out docs\evidence\beir-scifact-hybrid.json
+```
+Without `sentence-transformers`, try everything with the meaningless stand-in `--embedder hash:64`
+(the plumbing works, the results mean nothing). Each hybrid result prints *why*: its keyword rank and
+its meaning rank.
+
 ## Harvest real arXiv metadata (do this on your own machine)
 
 arXiv rules (checked 2026-10-31): 1 request per 3 s, one connection, all your machines
@@ -129,6 +144,7 @@ src/paperlens/
   text/        science-aware tokenizer, varint postings codec   (E3 keyword)
   testing/     helpers that crash-test child processes import
   pipeline/    supervisor, reader/writer workers, shared memory, shared limiter  (E1)
+  vectors/     embedders, 1-4 bit quantization, IVF, rank fusion (RRF)  (E3 semantic)
   harvest/     arXiv OAI-PMH harvester, limiter, fake server   (E1, supporting)
   synth.py     seeded synthetic data (plumbing tests only)
   cli.py       python -m paperlens ...

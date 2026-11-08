@@ -36,7 +36,7 @@ Canonical JSON: sorted keys, no spaces, UTF-8 kept as-is. Unknown or missing fie
 **JSONL**: one canonical JSON record per line, UTF-8, `\n` newlines on every OS (we write
 with `newline="\n"` so Windows never makes `\r\n`) `BUILT`.
 
-## 2. Diary (write-ahead log) `BUILT` framing, `PLANNED` payload
+## 2. Diary (write-ahead log) `BUILT`
 
 File name: `wal/wal-<first_seq, zero-padded to 20 digits>.log` (padding so names sort
 correctly as text; see decision D1).
@@ -74,7 +74,7 @@ Record, little endian:
 write `MANIFEST.tmp` -> fsync -> `os.replace` -> fsync directory. Missing file = new index.
 Bad checksum = `ManifestError` (we refuse to guess). A leftover `MANIFEST.tmp` is junk.
 
-## 4. Segment files `BUILT` (`store/segment.py`; vector files Phase 3)
+## 4. Segment files `BUILT` (`store/segment.py`; vector files since Phase 3)
 
 Immutable directory `segments/seg-NNNNNN/`, built first as `segments/.tmp-seg-NNNNNN/`, every
 file fsynced, directory fsynced, renamed, parent fsynced, **then** listed in a new MANIFEST.
@@ -88,10 +88,26 @@ file fsynced, directory fsynced, renamed, parent fsynced, **then** listed in a n
 | docs.bin + docs.off | canonical-JSON papers concatenated; u64 little-endian offsets, n+1 entries |
 | deletes.json | sorted list of keys killed by this batch; applies to **older** segments only |
 | meta.json | format, `tokenizer_version`, counts, size + crc32 of every file above; **written last** |
-| *(later)* vectors.q, vectors.f16, IVF file, zonemap, token vectors | Phase 3-6 |
+| attrs.json | `{"years":[...],"cats":[[...],...]}`, one entry per doc (for filters). Always written since Phase 3; Phase 1 segments lack it and the store derives it from the stored papers |
+| vectors.f16 | *(only if some doc has a vector)* little-endian float16 `[n x dim]`, unit-length rows, all-zero row = "no vector". The copy used to **re-score** candidates exactly |
+| vectors.q | *(same condition)* `codes [n x ceil(dim*bits/8)] u8` (bit-packed, `bits` in 1..4) , `d_o f32[n]`, `inv f32[n]`, `oc f32[n]`, `valid u8[n]`, `centroid f32[dim]`. Meaning of the numbers: `vectors/quant.py` |
+| ivf.bin | *(only if >= `ivf_min_docs` valid vectors)* `centroids f32[nlist x dim]`, `offsets u32[nlist+1]`, `order u32[n_valid]` |
+| meta.json extras | `zonemap {year_min, year_max, categories}` and `vectors {dim, bits, qversion, rot_seed, embedder, valid, ivf_nlist}` |
+| *(later)* token vectors for late interaction | Phase 6 |
 
 Opening a segment checks every file size against meta.json; **fsck** also checks every CRC.
 A segment built with a different `tokenizer_version` is refused (answers Q2 for now).
+
+### 4a. Vectors in the diary `BUILT` (Phase 3)
+
+A `put` entry may carry `"vec": base64(float16 bytes of the unit vector)`. A paper and its vector are
+therefore one diary record: they are both durable or both absent after a crash, and replay restores
+both. The first vector fixes the index's dimension; a later vector of another length is refused
+*before* anything is logged. A paper without a vector is allowed (it is simply invisible to vector
+search). Quantization parameters of a segment live in its meta.json, so segments of different bit
+widths can coexist. The rotation matrix is regenerated from `(dim, rot_seed)` with Python's own
+`random` module (stable stream) plus a QR step: a numpy upgrade does not silently change old codes
+(fsck re-derives the codes and tolerates up to 0.1% of bits differing from float rounding).
 
 ## 5. Recovery on every open `BUILT` (`store/index.py`)
 
