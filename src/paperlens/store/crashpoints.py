@@ -13,7 +13,7 @@ Optional PAPERLENS_CRASH_AFTER=N means "die on the N-th time this point is hit"
 
 Known points (grows with the store): after_wal_write, after_wal_fsync,
 flush_after_tmp_written, flush_after_segment_rename, flush_after_manifest,
-flush_after_wal_delete.
+flush_after_wal_delete, graph_after_file, graph_after_manifest.
 """
 from __future__ import annotations
 
@@ -29,6 +29,9 @@ KNOWN_POINTS = (
     "flush_after_manifest",
     "flush_after_wal_delete",
 )
+
+# Graph snapshot publication (store/graphfile.py); separate because only publish_graph reaches them.
+GRAPH_POINTS = ("graph_after_file", "graph_after_manifest")
 
 _hits: dict = {}
 

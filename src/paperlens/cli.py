@@ -151,12 +151,27 @@ def _cmd_search(a) -> int:
             hits = st.search_vector(qv, k=a.k, flt=flt, nprobe=a.nprobe)
         else:
             hits = st.search_hybrid(text, qv, k=a.k, flt=flt, nprobe=a.nprobe)
+        moves = {}
+        if a.graph_rerank:
+            if st.graph is None:
+                print("error: this index has no citation graph; run `citations` then `graph-build` first", file=sys.stderr)
+                return 1
+            from .graph.rerank import citation_rerank
+            hits = hits[:a.k]
+            by_id = {h.arxiv_id: h for h in hits}
+            fused = citation_rerank([h.arxiv_id for h in hits], st.graph, seeds=a.graph_seeds)
+            hits = [by_id[x] for x, *_ in fused]
+            moves = {x: (gr, orig) for x, _s, gr, orig in fused}
         if not hits:
             print("no results")
         for rank, h in enumerate(hits, 1):
             p = st.get(h.arxiv_id)
             print(f"{rank:2d}. {h.score:7.3f}  {h.arxiv_id}  {p.title[:90]}")
             print(f"            {', '.join(p.categories)}  {p.datestamp}")
+            if h.arxiv_id in moves:
+                gr, orig = moves[h.arxiv_id]
+                note = "close to the top results in the citation graph" if gr else "no citation signal"
+                print(f"            graph: was #{orig}; {note}")
             if mode == "hybrid":
                 kw = f"keyword rank {h.bm25_rank}" if h.bm25_rank else "not found by keywords"
                 vc = f"meaning rank {h.vec_rank}" if h.vec_rank else "not found by meaning"
@@ -237,6 +252,75 @@ def _cmd_beir(a) -> int:
     return 0
 
 
+def _cmd_citations(a) -> int:
+    """Fetch reference lists for every paper in the index from OpenAlex, within a spending cap."""
+    from .graph.openalex import KEY_DAILY, KEYLESS_DAILY, BudgetExhausted, OpenAlexClient, OpenAlexError, fetch_citations
+    from .pipeline.shared_limiter import SharedBudget
+    from .store.index import IndexStore
+    key = a.api_key or os.environ.get("OPENALEX_API_KEY")
+    cap = int(a.max_spend_usd * 1_000_000) if a.max_spend_usd is not None else (KEY_DAILY if key else KEYLESS_DAILY)
+    with IndexStore(a.index) as st:
+        ids = sorted(st.live)
+    client = OpenAlexClient(api_key=key, contact=a.contact, batch=a.batch, budget=SharedBudget(cap),
+                            **({"base_url": a.base_url} if a.base_url else {}))
+    try:
+        recs = fetch_citations(client, ids, a.out, log=print)
+    except (BudgetExhausted, OpenAlexError) as e:
+        print(f"stopped: {e}\nprogress is saved in {a.out}; run again to continue", file=sys.stderr)
+        return 2
+    known = sum(1 for r in recs.values() if r["openalex_id"])
+    print(f"done: {known}/{len(ids)} papers known to OpenAlex; {client.requests_made} requests, "
+          f"{client.spent_units / 1e6:.4f} USD (by our own accounting)")
+    return 0
+
+
+def _cmd_graph_build(a) -> int:
+    from .graph.openalex import _load_done, build_graph
+    from .store.index import IndexStore
+    recs = _load_done(a.citations)
+    if not recs:
+        print(f"error: no citation records in {a.citations}", file=sys.stderr)
+        return 1
+    with IndexStore(a.index) as st:
+        g = build_graph(sorted(st.live), recs)
+        v = st.publish_graph(g)
+    print(f"published graph version {v}: {g.n} papers, {g.m} citations inside the index")
+    return 0
+
+
+def _cmd_graph_stats(a) -> int:
+    import numpy as np
+    from .graph.rank import label_propagation, pagerank
+    from .store.index import IndexStore
+    with IndexStore(a.index) as st:
+        g = st.graph
+        if g is None:
+            print("no citation graph published yet")
+            return 1
+        r, it = pagerank(g)
+        lab, rounds = label_propagation(g)
+        print(f"papers {g.n}  citations {g.m}  PageRank iterations {it}  communities {len(set(lab.tolist()))} ({rounds} rounds)")
+        for i in np.argsort(-r)[:a.top]:
+            p = st.get(g.ids[int(i)])
+            print(f"  {r[i]:.5f}  cited {int(g.in_degree()[i]):3d}x  {g.ids[int(i)]}  {p.title[:70] if p else ''}")
+    return 0
+
+
+def _cmd_dupes(a) -> int:
+    from .graph.minhash import near_duplicate_clusters
+    from .store.index import IndexStore
+    with IndexStore(a.index) as st:
+        texts = {x: _paper_text(st.get(x)) for x in sorted(st.live)}
+        clusters = near_duplicate_clusters(texts, threshold=a.threshold)
+        if not clusters:
+            print("no near-duplicates found")
+        for c in clusters:
+            print(f"group of {len(c)}:")
+            for x in c:
+                print(f"   {x}  {st.get(x).title[:80]}")
+    return 0
+
+
 def _cmd_reindex(a) -> int:
     from .store.index import IndexCorrupt
     from .store.lock import IndexLocked
@@ -296,6 +380,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--year-from", type=int)
     s.add_argument("--year-to", type=int)
     s.add_argument("--nprobe", type=int, help="IVF clusters to scan (default: scan every code)")
+    s.add_argument("--graph-rerank", action="store_true", help="re-order the results using the citation graph (needs `graph-build`)")
+    s.add_argument("--graph-seeds", type=int, default=5, help="how many top results seed the citation walk")
     s.add_argument("query", nargs="+")
     s.set_defaults(fn=_cmd_search)
 
@@ -329,6 +415,31 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--bits", type=int, default=1, help="quantization bits for the vector codes (1-4)")
     b.add_argument("--out", help="also save the JSON result here (e.g. docs/evidence/beir-scifact.json)")
     b.set_defaults(fn=_cmd_beir)
+
+    c = sub.add_parser("citations", help="fetch reference lists from OpenAlex (resumable, budget-capped)")
+    c.add_argument("--index", required=True)
+    c.add_argument("--out", required=True, help="JSONL file that accumulates results (re-run to continue)")
+    c.add_argument("--contact", help="your contact e-mail, sent in the User-Agent so OpenAlex can reach you if needed")
+    c.add_argument("--api-key", help="OpenAlex key (or set the OPENALEX_API_KEY environment variable); never printed")
+    c.add_argument("--max-spend-usd", type=float, help="hard cap for this run (default: the documented daily budget)")
+    c.add_argument("--batch", type=int, default=50, help="papers per request (1-100)")
+    c.add_argument("--base-url", help=argparse.SUPPRESS)      # tests point this at a local fake server
+    c.set_defaults(fn=_cmd_citations)
+
+    gb = sub.add_parser("graph-build", help="turn fetched citations into a graph snapshot published in the index")
+    gb.add_argument("--index", required=True)
+    gb.add_argument("--citations", required=True)
+    gb.set_defaults(fn=_cmd_graph_build)
+
+    gs = sub.add_parser("graph-stats", help="PageRank leaders and community count of the published graph")
+    gs.add_argument("--index", required=True)
+    gs.add_argument("--top", type=int, default=10)
+    gs.set_defaults(fn=_cmd_graph_stats)
+
+    d = sub.add_parser("dupes", help="list near-duplicate papers (MinHash + LSH, verified by exact Jaccard)")
+    d.add_argument("--index", required=True)
+    d.add_argument("--threshold", type=float, default=0.8)
+    d.set_defaults(fn=_cmd_dupes)
 
     r = sub.add_parser("reindex", help="rebuild an index with the current tokenizer into a NEW folder")
     r.add_argument("--src", required=True)

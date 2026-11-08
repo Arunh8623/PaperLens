@@ -65,6 +65,7 @@ from .diary import DiaryWriter, list_wals, recover_tail, scan_file, wal_name
 from .fsutil import fsync_dir, retry_fs
 from .lock import DirLock
 from .manifest import Manifest, ManifestError, read_manifest, write_manifest
+from .graphfile import clean_graph_dir, load_graph, publish_graph
 from .segment import (Segment, SegmentError, publish_segment, segment_name,
                       segment_number, write_segment_tmp)
 
@@ -162,6 +163,7 @@ class IndexStore:
                 retry_fs(shutil.rmtree, os.path.join(self.seg_root, name))
                 stats["removed_unlisted"] += 1
         fsync_dir(self.seg_root)
+        stats["removed_graph_files"] = clean_graph_dir(self.path, self.manifest.graph_version)
         for name in self.manifest.segments:
             path = os.path.join(self.seg_root, name)
             if not os.path.isdir(path):
@@ -180,6 +182,7 @@ class IndexStore:
         self.seq = self.manifest.last_flushed_seq
         self._replay_diary(stats)
         self.recovery = stats
+        self.graph = load_graph(self.path)          # None until a graph has been published
 
     def _rebuild_from_segments(self) -> None:
         self.dead = [set() for _ in self.segments]
@@ -376,6 +379,13 @@ class IndexStore:
         fsync_dir(self.wal_dir)
         crashpoint("flush_after_wal_delete")
         return name
+
+    def publish_graph(self, graph) -> int:
+        """Publish a new citation-graph snapshot through the MANIFEST (see store/graphfile.py)."""
+        version = publish_graph(self.path, graph)
+        self.manifest = read_manifest(self.path)
+        self.graph = graph
+        return version
 
     def _next_segment_number(self) -> int:
         nums = [segment_number(n) for n in self.manifest.segments]

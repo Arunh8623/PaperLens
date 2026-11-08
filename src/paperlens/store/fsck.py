@@ -39,6 +39,7 @@ from ..contracts.paper import PaperError, PaperRecord
 from .filters import paper_year
 from ..text.varint import VarintError, decode_postings
 from .diary import list_wals, scan_file
+from .graphfile import GRAPH_DIR, GraphFileError, graph_path, read_graph_file
 from .lock import DirLock, IndexLocked
 from .manifest import ManifestError, read_manifest
 from .segment import DATA_FILES, OPTIONAL_FILES, Segment, SegmentError
@@ -92,7 +93,24 @@ def _check(index_dir, rep: FsckReport) -> None:
             continue
         total_docs += _check_segment(path, name, rep)
     rep.info["physical_docs"] = total_docs
+    _check_graph(index_dir, m.graph_version, rep)
     _check_diary(index_dir, m.last_flushed_seq, rep)
+
+
+def _check_graph(index_dir, version, rep) -> None:
+    gdir = os.path.join(index_dir, GRAPH_DIR)
+    live = os.path.basename(graph_path(index_dir, version)) if version else None
+    if os.path.isdir(gdir):
+        for name in sorted(os.listdir(gdir)):
+            if name != live:
+                rep.warnings.append(f"leftover graphs/{name} (recovery removes it)")
+    if not version:
+        return
+    try:
+        g = read_graph_file(graph_path(index_dir, version))
+        rep.info["graph"] = {"version": version, "nodes": g.n, "edges": g.m}
+    except GraphFileError as e:
+        rep.errors.append(f"graph v{version}: {e}")
 
 
 def _check_segment(path, name, rep) -> int:

@@ -1,0 +1,74 @@
+{
+ "data": "SYNTHETIC (plumbing only)",
+ "queries": 5,
+ "base": {
+  "ndcg@10": 1.0,
+  "recall@100": 1.0,
+  "mrr@10": 1.0,
+  "queries": 5
+ },
+ "settings": {
+  "graph(seeds=3,weight=0.5)": {
+   "ndcg@10": 1.0,
+   "recall@100": 1.0,
+   "mrr@10": 1.0,
+   "queries": 5
+  },
+  "graph(seeds=3,weight=1.0)": {
+   "ndcg@10": 1.0,
+   "recall@100": 1.0,
+   "mrr@10": 1.0,
+   "queries": 5
+  },
+  "graph(seeds=3,weight=2.0)": {
+   "ndcg@10": 1.0,
+   "recall@100": 1.0,
+   "mrr@10": 1.0,
+   "queries": 5
+  },
+  "graph(seeds=5,weight=0.5)": {
+   "ndcg@10": 1.0,
+   "recall@100": 1.0,
+   "mrr@10": 1.0,
+   "queries": 5
+  },
+  "graph(seeds=5,weight=1.0)": {
+   "ndcg@10": 1.0,
+   "recall@100": 1.0,
+   "mrr@10": 1.0,
+   "queries": 5
+  },
+  "graph(seeds=5,weight=2.0)": {
+   "ndcg@10": 1.0,
+   "recall@100": 1.0,
+   "mrr@10": 1.0,
+   "queries": 5
+  },
+  "graph(seeds=10,weight=0.5)": {
+   "ndcg@10": 1.0,
+   "recall@100": 1.0,
+   "mrr@10": 1.0,
+   "queries": 5
+  },
+  "graph(seeds=10,weight=1.0)": {
+   "ndcg@10": 1.0,
+   "recall@100": 1.0,
+   "mrr@10": 1.0,
+   "queries": 5
+  },
+  "graph(seeds=10,weight=2.0)": {
+   "ndcg@10": 1.0,
+   "recall@100": 1.0,
+   "mrr@10": 1.0,
+   "queries": 5
+  }
+ },
+ "best_setting": "graph(seeds=3,weight=0.5)",
+ "best_ndcg10_gain": 0.0,
+ "verdict": "switch off",
+ "min_gain_required": 0.005,
+ "seconds": 0.18,
+ "python": "3.13.18",
+ "platform": "Linux-6.18.44-fc-v310-x86_64-with-glibc2.39",
+ "date": "2026-11-08"
+}

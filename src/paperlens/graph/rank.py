@@ -18,8 +18,9 @@ papers": a way to find papers related to the top search hits.
 Label propagation: every paper starts with its own label (or a known one); repeatedly
 each paper adopts the most common label among its neighbours (ties -> smallest label).
 Papers that cite each other a lot end up sharing a label: a cheap topic community.
-Deterministic: nodes are processed in index order in rounds ("synchronous" version),
-and a node keeps its label when it is among the most common ones, to avoid oscillation.
+Reproducible: nodes are visited in a seeded random order each round and updated in place
+("asynchronous"; a fully synchronous version makes two linked nodes swap labels forever), and a node
+keeps its label when it is among the most common ones, to avoid oscillation.
 """
 from __future__ import annotations
 
