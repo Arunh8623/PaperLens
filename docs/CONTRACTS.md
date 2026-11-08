@@ -74,6 +74,17 @@ Record, little endian:
 write `MANIFEST.tmp` -> fsync -> `os.replace` -> fsync directory. Missing file = new index.
 Bad checksum = `ManifestError` (we refuse to guess). A leftover `MANIFEST.tmp` is junk.
 
+### 3a. Citation-graph snapshot `BUILT` (Phase 4; `store/graphfile.py`, `graph/csr.py`)
+
+`graphs/graph-<version:06d>.bin` = graph bytes + u32 crc32 trailer. Graph bytes: magic `PLG1`, u32 n, u32 m,
+u32 offsets[n+1], u32 targets[m], u32 length + UTF-8 JSON list of the n arXiv ids (CSR: the papers a node cites are
+`targets[offsets[i]:offsets[i+1]]`). Little endian. Publish order: write `.tmp-graph-N.bin` -> fsync -> rename ->
+fsync dir -> MANIFEST `graph_version = N` -> delete other files in `graphs/`. Recovery deletes every file in `graphs/`
+except the one the MANIFEST names. `graph_version = 0` means no graph.
+
+OpenAlex fetch output (`citations --out`): JSONL `{"arxiv_id", "openalex_id" (null if unknown to OpenAlex), "refs": [OpenAlex work ids]}`;
+appended and fsynced per request batch; a torn last line is ignored on resume.
+
 ## 4. Segment files `BUILT` (`store/segment.py`; vector files since Phase 3)
 
 Immutable directory `segments/seg-NNNNNN/`, built first as `segments/.tmp-seg-NNNNNN/`, every
@@ -141,6 +152,8 @@ brute-force model to 1e-9.
 | flush_after_segment_rename | `.tmp-seg-N` renamed to `seg-N` (not yet in MANIFEST) |
 | flush_after_manifest | new MANIFEST published |
 | flush_after_wal_delete | new diary started, old diary files deleted |
+| graph_after_file | (Phase 4, `GRAPH_POINTS`, not in `KNOWN_POINTS`) `graphs/graph-N.bin` renamed into place, MANIFEST not yet updated |
+| graph_after_manifest | (Phase 4) MANIFEST now says `graph_version = N`, older graph files not yet deleted |
 
 Each test asserts the child really exited with code 77, so an unwired point fails the test.
 

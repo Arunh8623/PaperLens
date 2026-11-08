@@ -119,6 +119,20 @@ Without `sentence-transformers`, try everything with the meaningless stand-in `-
 (the plumbing works, the results mean nothing). Each hybrid result prints *why*: its keyword rank and
 its meaning rank.
 
+## Citation graph and near-duplicates (Phase 4)
+
+```powershell
+$env:OPENALEX_API_KEY = "your-key"        # optional but recommended: a free key gives a bigger daily budget (check openalex.org docs)
+python -m paperlens citations --index data\ixs --out data\cites.jsonl --contact you@example.org --max-spend-usd 0.50
+python -m paperlens graph-build --index data\ixs --citations data\cites.jsonl     # publishes a graph snapshot into the index
+python -m paperlens graph-stats --index data\ixs                                   # PageRank leaders, communities
+python -m paperlens search --index data\ixs --graph-rerank "noisy labels"          # re-order using the citation graph
+python -m paperlens dupes --index data\ixs --threshold 0.8                         # near-duplicate papers
+python bench\graph_ablation.py --index data\ixs --queries data\my_queries.jsonl --out docs\evidence\graph-ablation-real.json
+```
+`citations` can be stopped and re-run: it continues where it stopped and never spends more than `--max-spend-usd`.
+Whether `--graph-rerank` helps is decided by the ablation on YOUR judged queries (it prints "keep" or "switch off").
+
 ## Harvest real arXiv metadata (do this on your own machine)
 
 arXiv rules (checked 2026-10-31): 1 request per 3 s, one connection, all your machines
@@ -145,6 +159,7 @@ src/paperlens/
   testing/     helpers that crash-test child processes import
   pipeline/    supervisor, reader/writer workers, shared memory, shared limiter  (E1)
   vectors/     embedders, 1-4 bit quantization, IVF, rank fusion (RRF)  (E3 semantic)
+  graph/       CSR citation graph, PageRank/PPR/label propagation, MinHash+LSH, OpenAlex client, rerank  (E3 graph)
   harvest/     arXiv OAI-PMH harvester, limiter, fake server   (E1, supporting)
   synth.py     seeded synthetic data (plumbing tests only)
   cli.py       python -m paperlens ...
