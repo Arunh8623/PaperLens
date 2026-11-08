@@ -537,3 +537,17 @@ def test_default_pool_grows_with_the_index(tmp_path):
     st.flush()
     assert st.default_pool(10) == 150                                     # same after the buffer became a segment
     st.close()
+
+
+def test_zone_map_boundaries_are_inclusive(tmp_path):
+    papers = [dataclasses.replace(p, created="2015-06-01") for p in generate_papers(20, 41)]
+    st = build(tmp_path / "ix", papers, flush_docs=10 ** 9)
+    st.flush()
+    seg = st.segments[0]
+    for flt in (Filter(year_from=2015), Filter(year_to=2015), Filter(year_from=2015, year_to=2015)):
+        m = seg.filter_mask(flt)
+        assert m is not None and m.all(), flt                            # the edge year itself still matches
+    for flt in (Filter(year_from=2016), Filter(year_to=2014)):
+        assert not seg.filter_mask(flt).any(), flt
+    assert len(st.search_vector(E.embed_query("checksum"), k=5, flt=Filter(year_from=2015), exact=True)) == 5
+    st.close()
