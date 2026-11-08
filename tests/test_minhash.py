@@ -118,11 +118,14 @@ def test_rerank_without_graph_or_seeds_keeps_the_original_order():
 def test_candidates_that_collide_but_are_not_similar_enough_are_rejected_by_the_exact_check():
     rng = random.Random(21)
     texts = {}
-    for i in range(80):                                   # 80 pairs with Jaccard about 0.5: some will collide in a band
+    for i in range(80):                                   # pairs with Jaccard about 0.75: most collide in some band
         a = doc(rng)
-        texts[f"a{i}"], texts[f"b{i}"] = a, mutate(a, rng, 0.1)
+        texts[f"a{i}"], texts[f"b{i}"] = a, mutate(a, rng, 0.06)
     shs = {k: shingles(t) for k, t in texts.items()}
-    assert all(jaccard(shs[f"a{i}"], shs[f"b{i}"]) < 0.8 for i in range(80))
-    assert near_duplicate_pairs(texts, threshold=0.8) == []
-    loose = near_duplicate_pairs(texts, threshold=0.3)    # the same collisions pass when the bar is lower
-    assert len(loose) > 0 and all(jv >= 0.3 for *_, jv in loose)
+    truth = {(f"a{i}", f"b{i}") for i in range(80) if jaccard(shs[f"a{i}"], shs[f"b{i}"]) >= 0.8}
+    below = 80 - len(truth)
+    assert below >= 20, "test needs many near-miss pairs"
+    everything = near_duplicate_pairs(texts, threshold=0.0)          # every LSH candidate, no filtering
+    got = {(a, b) for a, b, _ in near_duplicate_pairs(texts, threshold=0.8)}
+    assert len(everything) > len(truth) + 10                         # many collisions were NOT good enough ...
+    assert got == truth                                              # ... and the exact check removed them
