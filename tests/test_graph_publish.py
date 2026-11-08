@@ -53,7 +53,7 @@ def test_corrupt_graph_file_is_detected_by_fsck_and_by_open(tmp_path):
         st.publish_graph(g(6))
     path = graph_path(str(tmp_path / "ix"), 1)
     data = bytearray(open(path, "rb").read())
-    data[10] ^= 0xFF
+    data[-6] ^= 0x01                                           # one bit inside the ids text: still parses, only the crc notices
     open(path, "wb").write(bytes(data))
     rep = fsck(tmp_path / "ix")
     assert not rep.ok and any("graph v1" in e for e in rep.errors)

@@ -113,3 +113,16 @@ def test_rerank_without_graph_or_seeds_keeps_the_original_order():
     g = Graph.from_edges(["q1", "q2"], [("q1", "q2")])                         # none of the results are in the graph
     assert [a for a, *_ in citation_rerank(ids, g)] == ids
     assert citation_rerank([], g) == []
+
+
+def test_candidates_that_collide_but_are_not_similar_enough_are_rejected_by_the_exact_check():
+    rng = random.Random(21)
+    texts = {}
+    for i in range(80):                                   # 80 pairs with Jaccard about 0.5: some will collide in a band
+        a = doc(rng)
+        texts[f"a{i}"], texts[f"b{i}"] = a, mutate(a, rng, 0.1)
+    shs = {k: shingles(t) for k, t in texts.items()}
+    assert all(jaccard(shs[f"a{i}"], shs[f"b{i}"]) < 0.8 for i in range(80))
+    assert near_duplicate_pairs(texts, threshold=0.8) == []
+    loose = near_duplicate_pairs(texts, threshold=0.3)    # the same collisions pass when the bar is lower
+    assert len(loose) > 0 and all(jv >= 0.3 for *_, jv in loose)

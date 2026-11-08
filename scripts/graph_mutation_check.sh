@@ -19,7 +19,7 @@ PY
 R=src/paperlens/graph/rank.py; O=src/paperlens/graph/openalex.py; M=src/paperlens/graph/minhash.py; I=src/paperlens/store/index.py
 run G1_dangling_mass_dropped $R '(spread + r[dangling].sum() * tele)' '(spread)' "tests/test_graph.py -k pagerank"
 run G2_ppr_ignores_seed_weights $R '            w[g.index[a]] += x' '            w[g.index[a]] += 1.0' "tests/test_graph.py -k personalized"
-run G3_label_prop_synchronous_oscillation $R '            lab[i] = best.min()' '            lab[i] = best.max()' "tests/test_graph.py -k label"
+run G3_label_prop_never_keeps_own_label $R '            if lab[i] in best:' '            if False:' "tests/test_graph.py -k label"
 run G4_budget_not_enforced $O 'if self.budget is not None and not self.budget.try_spend(self.cost):' 'if False:' "tests/test_graph.py -k budget"
 run G5_resume_asks_again $O 'todo = [a for a in arxiv_ids if a not in done]' 'todo = list(arxiv_ids)' "tests/test_graph.py -k resume"
 run G6_unknown_papers_not_remembered $O 'rec = found.get(a) or {"arxiv_id": a, "openalex_id": None, "refs": []}' 'rec = found.get(a) or {"arxiv_id": a, "openalex_id": "https://openalex.org/W0", "refs": []}' "tests/test_graph.py -k resume"
