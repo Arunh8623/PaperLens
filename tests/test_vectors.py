@@ -522,3 +522,18 @@ def test_embedder_name_is_recorded_in_segments_and_read_back(tmp_path):
     st.close()
     with IndexStore(tmp_path / "ix") as st2:
         assert st2.embedder_name == "hash:24" and st2.stats()["embedder"] == "hash:24"
+
+
+def test_default_pool_grows_with_the_index(tmp_path):
+    papers = generate_papers(6000, 40)
+    st = IndexStore(tmp_path / "ix", flush_docs=10 ** 9, ivf_min_docs=0)
+    for p in papers[:60]:
+        st.put(p, vector=E.embed_paper(p))
+    assert st.default_pool(10) == 100 and st.default_pool(30) == 300      # small index: 10k, floor 100
+    for p in papers[60:]:
+        st.put(p, vector=E.embed_paper(p))
+    assert st.default_pool(10) == 150                                     # 2.5% of 6000 beats the floor
+    st.commit()
+    st.flush()
+    assert st.default_pool(10) == 150                                     # same after the buffer became a segment
+    st.close()

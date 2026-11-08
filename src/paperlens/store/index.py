@@ -478,12 +478,20 @@ class IndexStore:
             self._buf_vec_cache = (self._buf_ver, keys, mat)
         return self._buf_vec_cache[1], self._buf_vec_cache[2]
 
+    def default_pool(self, k) -> int:
+        """How many quantized candidates to re-score: at least 10k and 100, and 2.5% of all vectors.
+        (Measured on synthetic data, bench/recall_vs_bits.py: with 1-bit codes a pool of 0.5% of 20,000
+        vectors gave recall@10 = 0.81, a pool of 2.5% gave 0.997.)"""
+        total = sum(s.meta["vectors"]["valid"] for s in self.segments if s.has_vectors)
+        total += sum(1 for d in self.buf.values() if d.vec is not None)
+        return max(10 * (k or 0), 100, math.ceil(0.025 * total))
+
     def search_vector(self, qvec, k=10, flt=None, pool=None, nprobe=None, exact=False) -> list:
         """Nearest papers by cosine similarity. Hit.score is the EXACT half-precision cosine.
 
         Normal mode: scan the quantized codes of each segment (all docs, or only the `nprobe`
         nearest IVF clusters when a segment has an IVF index), keep the best `pool` candidates
-        (default max(10k, 100)), then re-score those with the half-precision vectors.
+        (default: see default_pool), then re-score those with the half-precision vectors.
         exact=True skips the codes and scores every live vector exactly (the oracle for tests)."""
         if self.vec_dim == 0 or (k is not None and k <= 0):
             return []
@@ -492,7 +500,7 @@ class IndexStore:
             raise ValueError(f"query vector has {q.size} numbers but this index uses {self.vec_dim}")
         if k is None:
             exact = True
-        pool = pool or max(10 * (k or 0), 100)
+        pool = pool or self.default_pool(k)
         seg_cands = []                         # (estimated score, segment index, local id)
         for si, seg in enumerate(self.segments):
             if not seg.has_vectors:
