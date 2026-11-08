@@ -27,7 +27,7 @@
 CLI `citations`, `graph-build`, `graph-stats`, `dupes`, `search --graph-rerank`, `bench/graph_ablation.py`,
 `scripts/graph_mutation_check.sh`, tests `test_graph.py`, `test_minhash.py`, `test_graph_publish.py`, `test_cli_graph.py`.
 
-## Verified by running (Linux, Python 3.13)
+## Verified by running (Linux, Python 3.13): full suite 355 passed, 0 failed (`docs/evidence/tests-20261108-9dc5320-py3.13.18-linux.json`)
 * PageRank and Personalized PageRank equal an independent direct solution `(I - alpha M) r = (1 - alpha) t` (dense linear algebra)
   to 1e-9 on random graphs with dangling nodes; hand-checked 4-node case.
 * LSH+exact-check pairs equal a brute-force all-pairs Jaccard oracle; near-miss collisions are rejected.
