@@ -4,6 +4,7 @@
 cd "$(git rev-parse --show-toplevel)" || exit 1
 [ -z "$(git status --porcelain src)" ] || { echo "src/ has uncommitted changes; commit first"; exit 1; }
 run() { # name file old new tests
+  [ -n "$ONLY" ] && [[ "$1" != $ONLY* ]] && return   # e.g. ONLY=V13 bash scripts/vector_mutation_check.sh
   python - "$2" "$3" "$4" <<'PY'
 import sys
 f,o,n=sys.argv[1:4]
