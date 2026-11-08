@@ -23,7 +23,7 @@ run G3_label_prop_never_keeps_own_label $R '            if lab[i] in best:' '   
 run G4_budget_not_enforced $O 'if self.budget is not None and not self.budget.try_spend(self.cost):' 'if False:' "tests/test_graph.py -k budget"
 run G5_resume_asks_again $O 'todo = [a for a in arxiv_ids if a not in done]' 'todo = list(arxiv_ids)' "tests/test_graph.py -k resume"
 run G6_unknown_papers_not_remembered $O 'rec = found.get(a) or {"arxiv_id": a, "openalex_id": None, "refs": []}' 'rec = found.get(a) or {"arxiv_id": a, "openalex_id": "https://openalex.org/W0", "refs": []}' "tests/test_graph.py -k resume"
-run G7_lsh_candidates_not_verified $M 'if jv >= threshold:' 'if True:' "tests/test_minhash.py -k lsh_finds"
+run G7_lsh_candidates_not_verified $M 'if jv >= threshold:' 'if True:' "tests/test_minhash.py"
 run G8_dedupe_keeps_worst $M 'best = min(g, key=ranked_keys.index)' 'best = max(g, key=ranked_keys.index)' "tests/test_minhash.py -k clusters_merge"
 run G9_shingles_case_sensitive $M '    words = _WORD.findall(text.lower())' '    words = _WORD.findall(text)' "tests/test_minhash.py -k shingles"
 run G10_rerank_ignores_graph src/paperlens/graph/rerank.py '            s += weight / (rrf_k + graph_rank[a])' '            s += 0.0' "tests/test_minhash.py -k lifts"
