@@ -213,6 +213,19 @@ def _cmd_compact(a) -> int:
     return 0
 
 
+def _cmd_serve_web(a) -> int:
+    try:
+        import uvicorn
+        from .web.app import create_app
+    except ImportError:
+        print("error: the web UI needs FastAPI: python -m pip install fastapi uvicorn", file=sys.stderr)
+        return 1
+    app = create_app(a.index, workers=a.workers)
+    print(f"PaperLens web UI: http://{a.host}:{a.port}   (Ctrl+C to stop)")
+    uvicorn.run(app, host=a.host, port=a.port, log_level="warning")
+    return 0
+
+
 def _cmd_serve_query(a) -> int:
     """Start query workers and answer queries typed on stdin (a smoke test for the query server)."""
     from .server.query_server import QueryServer
@@ -481,6 +494,13 @@ def build_parser() -> argparse.ArgumentParser:
     kp.add_argument("-k", type=int, default=5)
     kp.add_argument("query", nargs="+")
     kp.set_defaults(fn=_cmd_key_papers)
+
+    sw = sub.add_parser("serve-web", help="web page + JSON API on read-only query workers (needs fastapi, uvicorn)")
+    sw.add_argument("--index", required=True)
+    sw.add_argument("--host", default="127.0.0.1")
+    sw.add_argument("--port", type=int, default=8000)
+    sw.add_argument("--workers", type=int, default=2)
+    sw.set_defaults(fn=_cmd_serve_web)
 
     sq = sub.add_parser("serve-query", help="run query worker processes on a read-only snapshot (type queries on stdin)")
     sq.add_argument("--index", required=True)

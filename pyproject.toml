@@ -10,17 +10,19 @@ requires-python = ">=3.10"
 dependencies = ["numpy>=1.24"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
-# Added in later phases (not needed for Phase 0):
-# native = ["scikit-build-core", "pybind11"]
-# semantic = ["sentence-transformers", "numpy"]
-# api = ["fastapi", "uvicorn"]
+dev = ["pytest>=7", "fastapi", "uvicorn", "httpx"]
+web = ["fastapi", "uvicorn"]
+semantic = ["sentence-transformers"]          # real embedding models (not needed for the stand-in hash embedder)
+native = ["pybind11", "cmake"]                 # to build the optional C++ accelerator: python scripts/build_native.py
 
 [project.scripts]
 paperlens = "paperlens.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+paperlens = ["web/static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

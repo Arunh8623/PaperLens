@@ -47,12 +47,13 @@ def test_key_papers_ranks_by_pagerank_among_the_results(tmp_path):
     ids = [p.arxiv_id for p in ps]
     hub = ids[7]
     st.publish_graph(Graph.from_edges(ids, [(a, hub) for a in ids if a != hub] + [(ids[1], ids[2])]))
-    top = {h.arxiv_id for h in st.search("inverted postings", k=100)}
-    top.add(hub)
-    got = key_papers(st, "inverted postings", k=3, depth=100)
-    assert got and got[0]["pagerank"] >= got[-1]["pagerank"]
-    if hub in top and hub in {h.arxiv_id for h in st.search("inverted postings", k=100)}:
-        assert got[0]["arxiv_id"] == hub and got[0]["cited_by_results"] >= 1
+    hub_title = st.get(hub).title
+    assert hub in {h.arxiv_id for h in st.search(hub_title, k=100)}
+    got = key_papers(st, hub_title, k=3, depth=100)
+    prs = [g["pagerank"] for g in got]
+    assert len(got) == 3 and prs == sorted(prs, reverse=True) and prs[0] > prs[-1]
+    assert got[0]["arxiv_id"] == hub                                           # everybody cites it
+    assert got[0]["cited_by_results"] >= 2
     st.close()
 
 
@@ -73,6 +74,7 @@ def test_8bit_quantization_is_small_and_nearly_lossless():
     m = rng.normal(size=(40, 32)).astype(np.float32)
     q, s = quantize8(m)
     assert q.dtype == np.int8 and q.nbytes + s.nbytes < m.nbytes / 3
+    assert (np.abs(q).max(axis=1) == 127).all()                                # every row uses the full 8-bit range
     assert np.abs(dequantize8(q, s) - m).max() <= s.max() / 2 + 1e-6
     assert quantize8(np.zeros((0, 32), np.float32))[0].shape == (0, 32)
 
@@ -87,11 +89,13 @@ def test_maxsim_is_the_sum_of_best_matches():
 def test_late_rerank_keeps_every_hit_and_lifts_the_best_token_match(tmp_path):
     st, ps, _ = make(tmp_path, vectors=False, n=120)
     hits = st.search("inverted postings segment", k=60)
-    out = late_rerank(st, "inverted postings segment", hits, depth=40)
+    depth = len(hits) // 2
+    assert depth >= 5 and len(hits) - depth >= 5
+    out = late_rerank(st, "inverted postings segment", hits, depth=depth)
     assert sorted(a for a, *_ in out) == sorted(h.arxiv_id for h in hits)
-    assert [a for a, *_ in out[40:]] == [h.arxiv_id for h in hits[40:]]           # the tail is untouched
-    best = max(out[:40], key=lambda t: t[2])
-    assert [a for a, *_ in out[:40]].index(best[0]) <= [h.arxiv_id for h in hits].index(best[0])
+    assert [a for a, *_ in out[depth:]] == [h.arxiv_id for h in hits[depth:]]     # the tail is untouched
+    best = max(out[:depth], key=lambda t: t[2])
+    assert [a for a, *_ in out[:depth]].index(best[0]) <= [h.arxiv_id for h in hits].index(best[0])
     a = late_rerank(st, "inverted postings segment", hits, compress=True)
     b = late_rerank(st, "inverted postings segment", hits, compress=False)
     assert len({x for x, *_ in a[:10]} & {x for x, *_ in b[:10]}) >= 9             # 8-bit barely changes the top 10

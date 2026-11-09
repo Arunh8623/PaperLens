@@ -18,12 +18,17 @@ import time
 
 
 # ----------------------------------------------------------------------------- worker side
-def _hit_dict(reader, rank, h, mode):
+def _hit_dict(reader, rank, h, mode, query="", moves=None):
+    from ..explain import reasons
     p = reader.get(h.arxiv_id)
     d = {"rank": rank, "arxiv_id": h.arxiv_id, "score": float(h.score), "title": p.title if p else "",
-         "categories": list(p.categories) if p else [], "datestamp": p.datestamp if p else ""}
+         "categories": list(p.categories) if p else [], "datestamp": p.datestamp if p else "",
+         "authors": list(p.authors[:4]) if p else [], "abstract": (p.abstract[:400] if p else "")}
     if mode == "hybrid":
         d["bm25_rank"], d["vec_rank"] = h.bm25_rank, h.vec_rank
+    d["why"] = reasons(query, p, mode, getattr(h, "bm25_rank", None) if mode == "hybrid" else None,
+                       getattr(h, "vec_rank", None) if mode == "hybrid" else None, (moves or {}).get("graph", {}).get(h.arxiv_id),
+                       (moves or {}).get("late", {}).get(h.arxiv_id))
     return d
 
 
@@ -60,13 +65,53 @@ def _serve(conn, index_path, refresh_interval):
                     hits = reader.search_vector(qv, k=k, flt=flt)
                 else:
                     hits = reader.search_hybrid(text, qv, k=k, flt=flt)
+                moves = {"graph": {}, "late": {}}
                 if args.get("graph_rerank") and reader.graph is not None and hits:
                     from ..graph.rerank import citation_rerank
                     by_id = {h.arxiv_id: h for h in hits}
                     fused = citation_rerank([h.arxiv_id for h in hits], reader.graph)
                     hits = [by_id[a] for a, *_ in fused]
+                    moves["graph"] = {a: (orig, new) for new, (a, _s, _g, orig) in enumerate(fused, 1)}
+                if args.get("late") and hits:
+                    from ..vectors.late import late_rerank
+                    by_id = {h.arxiv_id: h for h in hits}
+                    fused = late_rerank(reader, text, hits, depth=len(hits))
+                    hits = [by_id[a] for a, *_ in fused]
+                    moves["late"] = {a: (orig, new) for new, (a, _s, _m, orig) in enumerate(fused, 1)}
+                dropped = {}
+                if args.get("dedupe") and hits:
+                    from ..graph.minhash import dedupe_ranked
+                    texts = {h.arxiv_id: f"{reader.get(h.arxiv_id).title}. {reader.get(h.arxiv_id).abstract}" for h in hits}
+                    kept, dropped = dedupe_ranked([h.arxiv_id for h in hits], texts, threshold=0.8)
+                    hits = [h for h in hits if h.arxiv_id in set(kept)]
                 out = {"generation": reader.generation, "last_flushed_seq": reader.manifest.last_flushed_seq,
-                       "hits": [_hit_dict(reader, i, h, mode) for i, h in enumerate(hits, 1)]}
+                       "hits": [_hit_dict(reader, i, h, mode, text, moves) for i, h in enumerate(hits, 1)],
+                       "merged_duplicates": dropped}
+            elif op == "similar":
+                from ..discover import more_like_this
+                try:
+                    got = more_like_this(reader, args["arxiv_id"], k=args["k"])
+                    out = {"generation": reader.generation, "how": got[0][1] if got else "",
+                           "hits": [_hit_dict(reader, i, h, "vector") for i, (h, _) in enumerate(got, 1)]}
+                except KeyError:
+                    out = {"error": "not_found"}
+            elif op == "key":
+                from ..discover import NoGraph, key_papers
+                try:
+                    qv = None
+                    if reader.vec_dim:
+                        if embedder is None:
+                            from ..vectors.embedders import make_embedder
+                            embedder = make_embedder(reader.embedder_name)
+                        qv = embedder.embed_query(args["query"])
+                    got = key_papers(reader, args["query"], qvec=qv, k=args["k"])
+                    out = {"generation": reader.generation, "key": [
+                        {**g, "title": reader.get(g["arxiv_id"]).title} for g in got]}
+                except NoGraph:
+                    out = {"error": "no_graph"}
+            elif op == "paper":
+                p = reader.get(args["arxiv_id"])
+                out = {"error": "not_found"} if p is None else {"generation": reader.generation, "paper": p.to_dict()}
             elif op == "stats":
                 out = {"generation": reader.generation, **reader.stats()}
             elif op == "refresh":
@@ -162,9 +207,19 @@ class QueryServer:
         raise AssertionError("unreachable")
 
     def search(self, query: str, k: int = 10, mode: str = "bm25", cat=None, year_from: int = 0, year_to: int = 0,
-               graph_rerank: bool = False) -> dict:
+               graph_rerank: bool = False, late: bool = False, dedupe: bool = False) -> dict:
         return self._call("search", {"query": query, "k": k, "mode": mode, "cat": list(cat or ()),
-                                     "year_from": year_from, "year_to": year_to, "graph_rerank": graph_rerank})
+                                     "year_from": year_from, "year_to": year_to, "graph_rerank": graph_rerank,
+                                     "late": late, "dedupe": dedupe})
+
+    def similar(self, arxiv_id: str, k: int = 10) -> dict:
+        return self._call("similar", {"arxiv_id": arxiv_id, "k": k})
+
+    def key_papers(self, query: str, k: int = 5) -> dict:
+        return self._call("key", {"query": query, "k": k})
+
+    def paper(self, arxiv_id: str) -> dict:
+        return self._call("paper", {"arxiv_id": arxiv_id})
 
     def stats(self) -> dict:
         return self._call("stats")
