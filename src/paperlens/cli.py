@@ -152,6 +152,12 @@ def _cmd_search(a) -> int:
         else:
             hits = st.search_hybrid(text, qv, k=a.k, flt=flt, nprobe=a.nprobe)
         moves = {}
+        if a.late:
+            from .vectors.late import late_rerank
+            hits = hits[:a.k]
+            by_id = {h.arxiv_id: h for h in hits}
+            fused = late_rerank(st, " ".join(a.query), hits, depth=a.k)
+            hits = [by_id[x] for x, *_ in fused]
         if a.graph_rerank:
             if st.graph is None:
                 print("error: this index has no citation graph; run `citations` then `graph-build` first", file=sys.stderr)
@@ -357,6 +363,36 @@ def _cmd_dupes(a) -> int:
     return 0
 
 
+def _cmd_similar(a) -> int:
+    from .discover import more_like_this
+    from .store.index import IndexStore
+    with IndexStore(a.index) as st:
+        try:
+            got = more_like_this(st, a.arxiv_id, k=a.k)
+        except KeyError:
+            print(f"error: {a.arxiv_id} is not in this index", file=sys.stderr)
+            return 1
+        print(f"papers like {a.arxiv_id}: {st.get(a.arxiv_id).title[:80]}")
+        for i, (h, how) in enumerate(got, 1):
+            print(f"{i:2d}. {h.score:7.3f}  {h.arxiv_id}  {st.get(h.arxiv_id).title[:80]}   (by {how})")
+    return 0
+
+
+def _cmd_key_papers(a) -> int:
+    from .discover import NoGraph, key_papers
+    from .store.index import IndexStore
+    with IndexStore(a.index) as st:
+        try:
+            got = key_papers(st, " ".join(a.query), k=a.k)
+        except NoGraph:
+            print("error: no citation graph; run `citations` then `graph-build` first", file=sys.stderr)
+            return 1
+        for i, g in enumerate(got, 1):
+            print(f"{i:2d}. {g['arxiv_id']}  PageRank {g['pagerank']:.5f}  cited by {g['cited_by_results']} other results  "
+                  f"{st.get(g['arxiv_id']).title[:70]}")
+    return 0
+
+
 def _cmd_reindex(a) -> int:
     from .store.index import IndexCorrupt
     from .store.lock import IndexLocked
@@ -417,6 +453,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--year-to", type=int)
     s.add_argument("--nprobe", type=int, help="IVF clusters to scan (default: scan every code)")
     s.add_argument("--graph-rerank", action="store_true", help="re-order the results using the citation graph (needs `graph-build`)")
+    s.add_argument("--late", action="store_true", help="late-interaction rerank of the results (STAND-IN token encoder; see PHASE6)")
     s.add_argument("--graph-seeds", type=int, default=5, help="how many top results seed the citation walk")
     s.add_argument("query", nargs="+")
     s.set_defaults(fn=_cmd_search)
@@ -432,6 +469,18 @@ def build_parser() -> argparse.ArgumentParser:
     c2.add_argument("--ratio", type=float, default=4.0)
     c2.add_argument("--dead-ratio", type=float, default=0.5)
     c2.set_defaults(fn=_cmd_compact)
+
+    sm = sub.add_parser("similar", help="More like this: papers closest to one paper")
+    sm.add_argument("--index", required=True)
+    sm.add_argument("arxiv_id")
+    sm.add_argument("-k", type=int, default=10)
+    sm.set_defaults(fn=_cmd_similar)
+
+    kp = sub.add_parser("key-papers", help="Key papers: most central papers (PageRank) among a query's results")
+    kp.add_argument("--index", required=True)
+    kp.add_argument("-k", type=int, default=5)
+    kp.add_argument("query", nargs="+")
+    kp.set_defaults(fn=_cmd_key_papers)
 
     sq = sub.add_parser("serve-query", help="run query worker processes on a read-only snapshot (type queries on stdin)")
     sq.add_argument("--index", required=True)

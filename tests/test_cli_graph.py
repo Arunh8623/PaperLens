@@ -70,3 +70,23 @@ def test_ablation_script_runs_and_applies_its_decision_rule(tmp_path):
     assert d["data"].startswith("SYNTHETIC") and len(d["settings"]) == 9
     # synthetic base is already perfect, so the rule must say "switch off" (no measured gain)
     assert d["base"]["ndcg@10"] == 1.0 and d["verdict"] == "switch off"
+
+
+def test_similar_key_papers_and_late_commands(tmp_path):
+    papers = generate_papers(50, seed=2)
+    data, ix, cites = tmp_path / "p.jsonl", str(tmp_path / "ix"), str(tmp_path / "c.jsonl")
+    write_jsonl(data, papers)
+    assert cli("index", "--index", ix, "--input", str(data), "--embedder", "hash:32").returncode == 0
+    r = cli("similar", "--index", ix, papers[5].arxiv_id, "-k", "4")
+    assert r.returncode == 0 and r.stdout.count("(by meaning vector)") == 4 and r.stdout.count(papers[5].arxiv_id) == 1, r.stdout + r.stderr
+    assert cli("similar", "--index", ix, "0000.00000").returncode == 1
+    assert cli("key-papers", "--index", ix, "graph").returncode == 1                    # no graph yet
+    rng = random.Random(1)
+    ids = [p.arxiv_id for p in papers]
+    with FakeOpenAlex({a: rng.sample(ids, 3) for a in ids}) as srv:
+        assert cli("citations", "--index", ix, "--out", cites, "--base-url", srv.url).returncode == 0
+    assert cli("graph-build", "--index", ix, "--citations", cites).returncode == 0
+    r = cli("key-papers", "--index", ix, "-k", "3", "inverted postings")
+    assert r.returncode == 0 and r.stdout.count("PageRank") == 3, r.stdout + r.stderr
+    r = cli("search", "--index", ix, "--late", "-k", "5", "inverted postings")
+    assert r.returncode == 0 and len([l for l in r.stdout.splitlines() if l[:3].strip().rstrip(".").isdigit()]) == 5, r.stdout + r.stderr
