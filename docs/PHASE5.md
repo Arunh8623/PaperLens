@@ -19,7 +19,7 @@
 * **Thread safety.** Public store operations take one re-entrant lock; compaction holds it only for planning and for the swap.
 * Zone maps (min/max year, categories per segment) were added in Phase 3 and are used by filtered searches; they are carried through merges.
 
-## Verified by running (Linux, Python 3.13)
+## Verified by running (Linux, Python 3.13): full suite 394 passed, 0 failed (`docs/evidence/tests-20261109-79da7e2-py3.13.18-linux.json`)
 * Merge without deletions changes **no BM25 score** (to 1e-12), also after restart.
 * Full compaction on messy streams (replacements + deletes, 3 seeds) equals the independent brute-force oracle exactly, before and after restart.
 * Partial merge keeps exactly the tombstones that still hide older papers; unflushed deletes survive; a delete that lands **while the merge is being
