@@ -20,7 +20,7 @@ vector estimates are compared with a tolerance and could in theory reorder two n
 **Build:** `python scripts/build_native.py` (CMake + pybind11; see README for the exact Windows and Linux commands). It is deliberately NOT part of
 `pip install -e .` so a missing compiler can never break the normal install.
 
-## Verified by running (Linux, g++, Python 3.13)
+## Verified by running (Linux, g++, Python 3.13): full suite 467 passed, 0 failed (`docs/evidence/tests-20261109-f63268d-py3.13.18-linux.json`)
 * 66 differential tests: random postings lists (incl. 64-bit values, offsets, bytearray/memoryview inputs), 7 kinds of corrupt input (same exception
   type AND message), BM25 accumulation with/without dead and filter masks on 8 seeds x 4 combos (`np.array_equal` on the doubles), out-of-range docs,
   shape validation, `level_dot` for bits 1-4 and dims 8/13/64/384, and **end-to-end**: `IndexStore.search` results (keys and scores) identical with the
