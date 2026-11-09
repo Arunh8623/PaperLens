@@ -560,6 +560,15 @@ class IndexStore:
         total_len = sum(s.total_doclen for s in self.segments) + sum(d.dl for d in self.buf.values())
         avgdl = total_len / n_docs
         masks = [s.filter_mask(flt) for s in self.segments]
+        dead_masks = []                                   # uint8 flags per segment (None when nothing is dead)
+        for si, seg in enumerate(self.segments):
+            if self.dead[si]:
+                dm = np.zeros(seg.num_docs, dtype=np.uint8)
+                dm[list(self.dead[si])] = 1
+                dead_masks.append(dm)
+            else:
+                dead_masks.append(None)
+        accs: list = [None] * len(self.segments)          # dense float64 score array per segment, allocated on first hit
         scores: dict = {}
         for term in terms:
             df = sum(s.df(term) for s in self.segments) + len(self.buf_inv.get(term, ()))
@@ -567,21 +576,28 @@ class IndexStore:
                 continue
             idf = math.log(1.0 + (n_docs - df + 0.5) / (df + 0.5))
             for si, seg in enumerate(self.segments):
-                dead = self.dead[si]
-                mask = masks[si]
-                for local, tf in seg.postings(term):
-                    if local in dead or (mask is not None and not mask[local]):
-                        continue
-                    dl = seg.doclens[local]
-                    s = idf * tf * (K1 + 1.0) / (tf + K1 * (1.0 - B + B * dl / avgdl))
-                    key = seg.keys[local]
-                    scores[key] = scores.get(key, 0.0) + s
+                if seg.df(term) == 0:
+                    continue
+                if accs[si] is None:
+                    accs[si] = np.zeros(seg.num_docs, dtype=np.float64)
+                seg.bm25_accumulate(term, idf, avgdl, accs[si], dead_masks[si], masks[si], K1, B)
             for key, tf in self.buf_inv.get(term, {}).items():
                 if not self._buf_ok(self.buf[key], flt):
                     continue
                 dl = self.buf[key].dl
                 s = idf * tf * (K1 + 1.0) / (tf + K1 * (1.0 - B + B * dl / avgdl))
                 scores[key] = scores.get(key, 0.0) + s
+        for si, acc in enumerate(accs):
+            if acc is None:
+                continue
+            seg = self.segments[si]
+            idx = np.nonzero(acc > 0.0)[0]                # BM25 contributions are always > 0
+            if k is not None and len(idx) > 4 * k + 16:   # keep this segment's k best (plus ties): enough for the global top k
+                vals = acc[idx]
+                thr = np.partition(vals, len(vals) - k)[len(vals) - k]
+                idx = idx[vals >= thr]
+            for local in idx.tolist():
+                scores[seg.keys[local]] = float(acc[local])
         order = lambda kv: (-kv[1], kv[0])                 # score desc, then key: deterministic
         ranked = sorted(scores.items(), key=order) if k is None else heapq.nsmallest(k, scores.items(), key=order)
         return [Hit(s, key, split_key(key)[0]) for key, s in ranked]

@@ -150,7 +150,7 @@ def _check_segment(path, name, rep) -> int:
         sums = [0] * n
         for term, (_off, df) in seg.terms.items():
             try:
-                pairs = seg.postings(term)
+                pairs = seg.postings(term, reference=True)       # pure Python: independent of the C++ decoder
             except VarintError as e:
                 err(f"postings for {term!r} do not decode ({e})")
                 continue

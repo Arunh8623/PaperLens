@@ -9,3 +9,5 @@ data/
 *.so
 *.pyd
 windows-check-report.txt
+build/
+src/paperlens/_native*

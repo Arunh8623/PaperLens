@@ -36,6 +36,8 @@ from functools import lru_cache
 
 import numpy as np
 
+from .. import native
+
 QVERSION = 1
 ROT_SEED = 20240601
 CHUNK = 16384
@@ -125,8 +127,7 @@ def estimate(packed: np.ndarray, d_o, inv, oc, prep: QueryPrep, dim: int, bits: 
     out = np.empty(n, dtype=np.float32)
     for a in range(0, n, CHUNK):
         b = min(a + CHUNK, n)
-        u = unpack_levels(packed[a:b], dim, bits)
-        est = inv[a:b] * (u @ prep.q_rot)
+        est = inv[a:b] * native.level_dot(packed[a:b], prep.q_rot, dim, bits)
         out[a:b] = d_o[a:b] * prep.d_q * est + oc[a:b] + prep.qcen - prep.cc
     return out
 

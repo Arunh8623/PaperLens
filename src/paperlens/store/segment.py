@@ -46,6 +46,7 @@ from typing import Iterable
 import numpy as np
 
 from ..contracts.paper import PaperRecord
+from .. import native
 from ..text.varint import decode_postings, encode_postings
 from ..vectors import ivf as ivf_mod
 from ..vectors import quant
@@ -303,15 +304,29 @@ class Segment:
         t = self.terms.get(term)
         return t[1] if t else 0
 
-    def postings(self, term: str) -> list:
-        """[(local_doc, tf)] for a term (includes docs that were later deleted)."""
+    def _term_bytes(self, term: str):
         t = self.terms.get(term)
         if t is None:
-            return []
+            return None, 0
         off, df = t
-        data = self._post.slice(off, min(off + df * 20, len(self._post)))
-        pairs, _ = decode_postings(data, 0, df)
+        return self._post.slice(off, min(off + df * 20, len(self._post))), df
+
+    def postings(self, term: str, reference: bool = False) -> list:
+        """[(local_doc, tf)] for a term (includes docs that were later deleted).
+        reference=True always uses the pure-Python decoder (fsck, as an independent check of the C++ one)."""
+        data, df = self._term_bytes(term)
+        if data is None:
+            return []
+        pairs, _ = (decode_postings if reference else native.decode_postings)(data, 0, df)
         return pairs
+
+    def bm25_accumulate(self, term: str, idf: float, avgdl: float, out, dead_mask, mask, k1: float, b: float) -> int:
+        """Add this segment's BM25 contribution of `term` into out[local] (float64, one entry per doc),
+        skipping docs flagged in dead_mask (uint8 or None) or rejected by mask (bool or None)."""
+        data, df = self._term_bytes(term)
+        if data is None:
+            return 0
+        return native.bm25_accumulate(data, 0, df, self.doclens, dead_mask, mask, idf, k1, b, avgdl, out)
 
     def paper(self, local: int) -> PaperRecord:
         a, b = self.docs_off[local], self.docs_off[local + 1]

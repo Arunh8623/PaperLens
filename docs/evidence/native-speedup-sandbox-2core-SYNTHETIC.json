@@ -1,0 +1,55 @@
+{
+ "data": "SYNTHETIC",
+ "docs": 20000,
+ "python": "3.13.18",
+ "platform": "Linux-6.18.44-fc-v310-x86_64-with-glibc2.39",
+ "cpu_count": 2,
+ "native": {
+  "have_native": true,
+  "enabled": true,
+  "import_error": null,
+  "env_PAPERLENS_NATIVE": null
+ },
+ "date": "2026-11-09",
+ "search_all_queries_ms": {
+  "python": {
+   "p50_ms": 49.08,
+   "p95_ms": 49.573
+  },
+  "cpp": {
+   "p50_ms": 1.209,
+   "p95_ms": 1.26
+  }
+ },
+ "results_identical_in_this_run": true,
+ "search_speedup_p50": 40.6,
+ "decode_postings": {
+  "postings": 3948,
+  "python": {
+   "p50_ms": 1.997,
+   "p95_ms": 2.034
+  },
+  "cpp": {
+   "p50_ms": 0.127,
+   "p95_ms": 0.139
+  }
+ },
+ "vector_scan": {
+  "vectors": 50000,
+  "dim": 384,
+  "bits": 1,
+  "python": {
+   "p50_ms": 148.791,
+   "p95_ms": 150.352
+  },
+  "cpp": {
+   "p50_ms": 30.785,
+   "p95_ms": 31.152
+  }
+ },
+ "sqlite_fts5_all_queries_ms": {
+  "p50_ms": 15.786,
+  "p95_ms": 23.236
+ },
+ "sqlite_version": "3.53.1"
+}
