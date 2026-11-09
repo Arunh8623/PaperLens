@@ -157,6 +157,24 @@ brute-force model to 1e-9.
 
 Each test asserts the child really exited with code 77, so an unwired point fails the test.
 
+### 6a. Compaction, reader pins, snapshots `BUILT` (Phase 5)
+
+Compaction crash points (`COMPACT_POINTS`, not in `KNOWN_POINTS`): `compact_after_tmp_written` (merged segment
+written under `.tmp-seg-N`), `compact_after_segment_rename` (renamed to `seg-N`, MANIFEST still lists the old
+run), `compact_after_manifest` (MANIFEST lists `seg-N` in place of the run; old folders not yet deleted),
+`compact_after_old_deleted`. Recovery handles every case with the existing rules (delete `.tmp-*` and unlisted
+`seg-*`), except that an unlisted `seg-*` is KEPT while a live reader pin lists it.
+Only neighbouring segments are merged (a segment's tombstones apply to the segments before it). A tombstone in the
+merged group survives only if its key exists in a segment before the group; a merge that includes the first segment
+therefore drops all tombstones. Merged vectors are re-encoded from the half-precision copy.
+
+`pins/pin-<pid>-<random>.json`: `{"pid", "generation", "segments": [names]}`, padded with spaces. The reader holds an OS
+lock on the file (Windows: on a byte at offset 2^30, so the content stays readable). A pin whose lock can be taken belongs to
+a dead process and is deleted. A reader writes its pin BEFORE re-reading the MANIFEST to confirm its snapshot.
+Query-server messages (`server/query_server.py`), one private pipe per worker: `("search", {query, k, mode, cat, year_from,
+year_to, graph_rerank})`, `("stats", {})`, `("refresh", {})`, `("ping", {})`, `("stop", {})`; answers `("ok", {generation,
+last_flushed_seq, hits[], took_ms})`. Every answer names the generation it was computed from.
+
 ## 7. Pipeline messages `BUILT` (Phase 2, E1; `pipeline/messages.py`)
 
 `PaperJob(job_id, paper, slot, attempt)`, `PaperReady(job_id, reader_id, key, paper, term_freqs,

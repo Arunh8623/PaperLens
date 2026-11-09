@@ -133,6 +133,15 @@ python bench\graph_ablation.py --index data\ixs --queries data\my_queries.jsonl 
 `citations` can be stopped and re-run: it continues where it stopped and never spends more than `--max-spend-usd`.
 Whether `--graph-rerank` helps is decided by the ablation on YOUR judged queries (it prints "keep" or "switch off").
 
+## Compaction and query workers (Phase 5)
+
+```powershell
+python -m paperlens ingest --index data\ixs --input data\papers.jsonl --compact    # writer merges segments in the background
+python -m paperlens compact --index data\ixs --force                              # merge everything into one segment now
+python -m paperlens serve-query --index data\ixs --workers 2 --mode hybrid        # read-only query processes; type queries
+```
+Query workers read a frozen snapshot of the flushed data and never block the writer; they switch to a newer snapshot by themselves.
+
 ## Harvest real arXiv metadata (do this on your own machine)
 
 arXiv rules (checked 2026-10-31): 1 request per 3 s, one connection, all your machines
@@ -160,6 +169,7 @@ src/paperlens/
   pipeline/    supervisor, reader/writer workers, shared memory, shared limiter  (E1)
   vectors/     embedders, 1-4 bit quantization, IVF, rank fusion (RRF)  (E3 semantic)
   graph/       CSR citation graph, PageRank/PPR/label propagation, MinHash+LSH, OpenAlex client, rerank  (E3 graph)
+  server/      query worker processes on read-only snapshots (Phase 5)
   harvest/     arXiv OAI-PMH harvester, limiter, fake server   (E1, supporting)
   synth.py     seeded synthetic data (plumbing tests only)
   cli.py       python -m paperlens ...
