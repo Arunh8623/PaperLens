@@ -162,3 +162,76 @@ sequenceDiagram
     W->>S: AckBatch (only now durable)
     S->>S: job done, slot freed
 ```
+
+## 10. Architecture of the whole system (Phases 0-7)
+
+```mermaid
+flowchart LR
+    A[arXiv OAI-PMH harvester<br/>1 request / 3 s] --> SUP
+    O[OpenAlex client<br/>credit budget] --> G
+    subgraph E1[E1 Process and Ingestion]
+      SUP[Supervisor] --> R1[Reader 1] & R2[Reader N]
+      R1 & R2 -- vectors via shared memory --> W
+      SUP --> W[Single writer]
+    end
+    subgraph E2[E2 Persistent Index]
+      W --> D[(Diary / WAL)]
+      W --> SEG[(Immutable segments)]
+      SEG --> MAN[(MANIFEST)]
+      C[Compaction thread] --> SEG
+      G[(Graph snapshot PLG1)] --> MAN
+    end
+    subgraph E3[E3 Retrieval and Ranking]
+      QS[Query servers / IndexReader snapshots] --> MAN
+      QS --> BM[BM25] & VQ[1-4 bit vectors + IVF + f16 rescore]
+      BM & VQ --> RRF[RRF k=60] --> RR[optional graph / late rerank] --> DD[MinHash dedupe] --> EX[explain reasons]
+    end
+    EX --> WEB[FastAPI + one-page UI / CLI]
+```
+
+## 11. Stored files (ER view)
+
+```mermaid
+erDiagram
+    INDEX ||--|| MANIFEST : has
+    INDEX ||--o{ DIARY_FILE : has
+    INDEX ||--o{ SEGMENT : lists
+    INDEX ||--o| GRAPH_SNAPSHOT : lists
+    SEGMENT ||--|| POSTINGS_BIN : contains
+    SEGMENT ||--|| TERMS_IDX : contains
+    SEGMENT ||--|| DOCS_BIN : contains
+    SEGMENT ||--o| VECTORS : contains
+    SEGMENT ||--|| META_JSON : "checksums of all"
+    MANIFEST { int generation int last_flushed_seq list segments int graph_version int crc32 }
+    DIARY_FILE ||--o{ RECORD : frames
+    RECORD { u32 length u32 crc32 json payload }
+```
+
+## 12. Segment life cycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> tmp: written in .tmp-seg-N, every file fsynced
+    tmp --> renamed: rename to seg-N (not yet listed)
+    renamed --> live: MANIFEST lists it
+    live --> merged_away: compaction MANIFEST drops it
+    merged_away --> deleted: no reader pin holds it
+    tmp --> [*]: crash -> recovery deletes .tmp-*
+    renamed --> [*]: crash before MANIFEST -> unlisted, deleted on open
+```
+
+## 13. Query processing (activity)
+
+```mermaid
+flowchart TD
+    Q[query + filters] --> P[pin MANIFEST snapshot]
+    P --> T[tokenize] --> B[BM25 over segments + buffer]
+    P --> E[embed query] --> V[IVF probe, 1-4 bit scan, f16 rescore]
+    B --> F[RRF merge]
+    V --> F
+    F --> FL[category / year filter via zone maps + doc check]
+    FL --> GR{graph rerank on?}
+    GR -- yes --> PPR[personalized PageRank + RRF] --> DU
+    GR -- no --> DU[drop near-duplicates by MinHash]
+    DU --> RS[reasons per result] --> OUT[results]
+```
