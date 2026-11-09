@@ -343,3 +343,38 @@ def test_crash_during_compaction_loses_and_duplicates_nothing(tmp_path, point, a
         assert cl.read_acked(ack), "nothing acknowledged before the crash: weak test"
     cl.check_after_crash(ix, ack, kind)
     cl.finish_and_verify(ix, ack, n, seed, kind, flush_every=20)
+
+
+@pytest.mark.parametrize("flush_in_gap", [False, True])
+def test_a_delete_that_arrives_while_the_merge_is_being_built_is_not_lost(tmp_path, monkeypatch, flush_in_gap):
+    """compact() builds the new segment WITHOUT the state lock, so writes can land in that window."""
+    import paperlens.store.index as index_mod
+    st = build(tmp_path, n=60, flush=15)
+    papers = generate_papers(60, 1)
+    victim, other = papers[4], papers[40]
+    real = index_mod.merge_run
+
+    def merge_then_delete(*a, **kw):
+        out = real(*a, **kw)                                                   # the merged docs still contain the victim
+        st.delete(victim.arxiv_id)
+        if flush_in_gap:
+            st.commit()
+            st.flush()                                                         # its tombstone now sits in a NEWER segment
+        else:
+            st.delete(other.arxiv_id)                                          # stays pending (unflushed)
+        return out
+
+    monkeypatch.setattr(index_mod, "merge_run", merge_then_delete)
+    r = st.compact(force=True)
+    assert r["into"]
+    for p in ([victim] if flush_in_gap else [victim, other]):
+        assert st.get(p.arxiv_id) is None
+        assert p.key not in {h.key for h in st.search(p.title, k=None)}
+    st.commit()
+    st.flush()
+    want = 59 if flush_in_gap else 58
+    assert st.stats()["live_docs"] == want
+    st.close()
+    with IndexStore(tmp_path / "ix") as st2:
+        assert st2.get(victim.arxiv_id) is None and st2.stats()["live_docs"] == want
+    assert fsck(tmp_path / "ix").ok
