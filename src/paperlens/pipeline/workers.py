@@ -163,7 +163,7 @@ def _process(job: PaperJob, wid, arena, arena_name, dim, f: Faults, limiter, emb
 # ------------------------------------------------------------------------------ writer
 def writer_main(inc, index_path, flush_docs, batch_max, job_conn, res_conn, crash_env,
                 hb_interval, busy_timeout, dim=0, store_vectors=True, vec_bits=1, ivf_min_docs=4096,
-                embedder_name=""):
+                embedder_name="", auto_compact=False):
     for k, v in crash_env.items():                         # per-incarnation fault injection
         os.environ[k] = v
     chan = _Chan(res_conn)
@@ -174,6 +174,8 @@ def writer_main(inc, index_path, flush_docs, batch_max, job_conn, res_conn, cras
                         f"{dim}-number vectors; use the same embedder or a new index folder"))
         store.close()
         return
+    if auto_compact:
+        store.start_background_compaction(interval=0.5)
     beater = _Beater(chan, "writer", 0, inc, hb_interval, busy_timeout)
     beater.start()
     chan.send(Ready("writer", 0, inc, os.getpid(), {"recovery": dict(store.recovery)}))

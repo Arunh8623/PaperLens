@@ -33,6 +33,10 @@ KNOWN_POINTS = (
 # Graph snapshot publication (store/graphfile.py); separate because only publish_graph reaches them.
 GRAPH_POINTS = ("graph_after_file", "graph_after_manifest")
 
+# Compaction (store/index.py IndexStore.compact)
+COMPACT_POINTS = ("compact_after_tmp_written", "compact_after_segment_rename",
+                  "compact_after_manifest", "compact_after_old_deleted")
+
 _hits: dict = {}
 
 

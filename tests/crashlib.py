@@ -21,18 +21,18 @@ def child_env(**extra):
     return env
 
 
-def child_cmd(index, ackfile, n, seed, kind, batch, flush_every, pause=0, skip_acked=False, vec=False):
+def child_cmd(index, ackfile, n, seed, kind, batch, flush_every, pause=0, skip_acked=False, vec=False, compact=False):
     cmd = [sys.executable, "-m", "paperlens.testing.crash_child", str(index), str(ackfile),
            str(n), str(seed), kind, str(batch), str(flush_every), str(pause)]
-    return cmd + (["skip"] if skip_acked else []) + (["vec"] if vec else [])
+    return cmd + (["skip"] if skip_acked else []) + (["vec"] if vec else []) + (["compact"] if compact else [])
 
 
 def run_child(index, ackfile, n=200, seed=1, kind="plain", batch=7, flush_every=40,
-              crash_at=None, crash_after=1, timeout=120, vec=False):
+              crash_at=None, crash_after=1, timeout=120, vec=False, compact=False):
     extra = {}
     if crash_at:
         extra = {"PAPERLENS_CRASH_AT": crash_at, "PAPERLENS_CRASH_AFTER": crash_after}
-    return subprocess.run(child_cmd(index, ackfile, n, seed, kind, batch, flush_every, vec=vec),
+    return subprocess.run(child_cmd(index, ackfile, n, seed, kind, batch, flush_every, vec=vec, compact=compact),
                           env=child_env(**extra), capture_output=True, text=True, timeout=timeout)
 
 

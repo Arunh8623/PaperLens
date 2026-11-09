@@ -23,6 +23,8 @@ class IndexLocked(Exception):
 
 
 class DirLock:
+    _offset = 0                                      # byte that is locked on Windows (POSIX locks the whole file)
+
     def __init__(self, index_dir):
         self.path = os.path.join(os.fspath(index_dir), "LOCK")
         self._fd = None
@@ -34,7 +36,7 @@ class DirLock:
         try:
             if os.name == "nt":                      # pragma: no cover (Windows)
                 import msvcrt
-                os.lseek(fd, 0, os.SEEK_SET)
+                os.lseek(fd, self._offset, os.SEEK_SET)
                 msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
             else:
                 import fcntl
@@ -51,7 +53,7 @@ class DirLock:
         try:
             if os.name == "nt":                      # pragma: no cover (Windows)
                 import msvcrt
-                os.lseek(fd, 0, os.SEEK_SET)
+                os.lseek(fd, self._offset, os.SEEK_SET)
                 msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
         finally:
             os.close(fd)                             # POSIX: closing drops the flock
@@ -62,3 +64,17 @@ class DirLock:
 
     def __exit__(self, *exc):
         self.release()
+
+
+class FileLock(DirLock):
+    """Same OS lock on any file path (used by reader pins). On Windows the locked byte is far past the
+    end of the file, so other processes can still READ the file's contents while it is locked."""
+    _offset = 1 << 30
+
+    def __init__(self, path):
+        self.path = os.fspath(path)
+        self._fd = None
+
+    @property
+    def fd(self):
+        return self._fd

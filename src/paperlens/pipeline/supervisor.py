@@ -63,6 +63,7 @@ class PipelineConfig:
     max_outstanding: int = 128
     writer_batch: int = 64
     flush_docs: int = 1000
+    auto_compact: bool = False         # writer merges segments in a background thread (FR4)
     max_attempts: int = 3
     heartbeat_interval: float = 0.25
     job_timeout: float = 10.0          # reader stops heartbeating if ONE job takes longer than this
@@ -195,7 +196,8 @@ class Supervisor:
             args = (inc, str(cfg.index_path), cfg.flush_docs, cfg.writer_batch, job_r, res_w,
                     crash_env, cfg.heartbeat_interval, cfg.writer_job_timeout, cfg.dim,
                     cfg.store_vectors, cfg.vec_bits, cfg.ivf_min_docs,
-                    f"hash:{cfg.dim}" if cfg.embedder == "hash" else cfg.embedder)
+                    f"hash:{cfg.dim}" if cfg.embedder == "hash" else cfg.embedder,
+                    cfg.auto_compact)
             proc = self.ctx.Process(target=writer_main, args=args, daemon=True,
                                     name=f"paperlens-writer.{inc}")
         proc.start()

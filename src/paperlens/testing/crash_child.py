@@ -30,6 +30,7 @@ def main(argv) -> int:
     pause = float(argv[7]) if len(argv) > 7 else 0.0
     flags = set(argv[8:])
     skip_acked = "skip" in flags
+    compact = "compact" in flags                        # merge neighbouring segments after every flush
     with_vec = "vec" in flags                           # also store a (hash) vector with every paper
     emb = HashEmbedder(16) if with_vec else None
     stream = make_stream(n, seed, kind)
@@ -54,6 +55,8 @@ def main(argv) -> int:
             since_flush += len(chunk)
             if since_flush >= flush_every:
                 st.flush()
+                if compact:
+                    st.compact(fan_in=2, ratio=100.0)
                 since_flush = 0
             if pause:
                 time.sleep(pause)

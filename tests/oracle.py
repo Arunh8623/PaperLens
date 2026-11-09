@@ -59,6 +59,10 @@ class Model:
             self.flushed.append([key, toks, True])
         self.buffer = {}
 
+    def compact(self):
+        """Full merge: documents killed after their flush are finally forgotten (N, df, avgdl shrink)."""
+        self.flushed = [e for e in self.flushed if e[2]]
+
     def bm25(self, query):
         """{key: score} for every LIVE doc matching at least one query term."""
         terms = list(dict.fromkeys(tokenize(query)))

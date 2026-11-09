@@ -187,6 +187,42 @@ def _cmd_index_stats(a) -> int:
     return 0
 
 
+def _cmd_compact(a) -> int:
+    from .store.index import IndexStore
+    with IndexStore(a.index) as st:
+        before = st.stats()
+        rounds = 0
+        while True:
+            r = st.compact(force=a.force, fan_in=a.fan_in, ratio=a.ratio, dead_ratio=a.dead_ratio)
+            if r is None:
+                break
+            rounds += 1
+            print(f"merged {len(r['merged'])} segment(s) -> {r['into']}: {r['docs_before']} -> {r['docs_after']} docs "
+                  f"({r['dropped']} dropped), {r['tombstones_kept']} tombstones kept")
+            if a.force:
+                break
+        after = st.stats()
+    print(f"{rounds} merge(s): segments {before['segments']} -> {after['segments']}, "
+          f"physical docs {before['physical_docs']} -> {after['physical_docs']}, live {after['live_docs']}")
+    return 0
+
+
+def _cmd_serve_query(a) -> int:
+    """Start query workers and answer queries typed on stdin (a smoke test for the query server)."""
+    from .server.query_server import QueryServer
+    with QueryServer(a.index, workers=a.workers) as qs:
+        print(f"{a.workers} query worker(s) ready; type a query and press Enter (empty line quits)")
+        for line in sys.stdin:
+            q = line.strip()
+            if not q:
+                break
+            r = qs.search(q, k=a.k, mode=a.mode)
+            print(f"[generation {r['generation']}, worker {r['worker']}, {r['took_ms']} ms]")
+            for h in r["hits"]:
+                print(f"{h['rank']:2d}. {h['score']:7.3f}  {h['arxiv_id']}  {h['title'][:80]}")
+    return 0
+
+
 def _cmd_fsck(a) -> int:
     from .store.fsck import fsck
     rep = fsck(a.index)
@@ -212,7 +248,7 @@ def _cmd_ingest(a) -> int:
         return 1
     cfg = PipelineConfig(index_path=a.index, n_readers=a.readers, flush_docs=a.flush_docs,
                          store_vectors=emb is not None, embedder=emb.name if emb else "hash",
-                         dim=emb.dim if emb else 64, vec_bits=a.bits,
+                         dim=emb.dim if emb else 64, vec_bits=a.bits, auto_compact=a.compact,
                          chaos_reader_interval=0.25 if a.chaos else 0.0,
                          chaos_writer_kills=2 if a.chaos else 0, max_attempts=6 if a.chaos else 3,
                          faults=Faults(slow_seconds=a.chaos_slow if a.chaos else 0.0),
@@ -389,6 +425,21 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--index", required=True)
     x.set_defaults(fn=_cmd_index_stats)
 
+    c2 = sub.add_parser("compact", help="merge segments (drops deleted papers for good); needs the writer lock")
+    c2.add_argument("--index", required=True)
+    c2.add_argument("--force", action="store_true", help="merge everything into one segment")
+    c2.add_argument("--fan-in", type=int, default=4)
+    c2.add_argument("--ratio", type=float, default=4.0)
+    c2.add_argument("--dead-ratio", type=float, default=0.5)
+    c2.set_defaults(fn=_cmd_compact)
+
+    sq = sub.add_parser("serve-query", help="run query worker processes on a read-only snapshot (type queries on stdin)")
+    sq.add_argument("--index", required=True)
+    sq.add_argument("--workers", type=int, default=2)
+    sq.add_argument("-k", type=int, default=10)
+    sq.add_argument("--mode", choices=["bm25", "vector", "hybrid"], default="bm25")
+    sq.set_defaults(fn=_cmd_serve_query)
+
     f = sub.add_parser("fsck", help="check an index for damage (read-only)")
     f.add_argument("--index", required=True)
     f.set_defaults(fn=_cmd_fsck)
@@ -400,6 +451,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--skip-bad", action="store_true")
     g.add_argument("--embedder", help="also store vectors (see `index --embedder`)")
     g.add_argument("--bits", type=int, default=1)
+    g.add_argument("--compact", action="store_true", help="writer merges segments in a background thread while ingesting")
     g.add_argument("--chaos", action="store_true", help="kill a random reader every 0.25 s and the writer twice")
     g.add_argument("--chaos-slow", type=float, default=0.02, help="per-paper delay so chaos has time to bite")
     g.add_argument("--verbose", action="store_true")
