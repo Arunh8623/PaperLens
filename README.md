@@ -45,6 +45,23 @@ python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
+## Optional C++ accelerator (Phase 1b)
+
+The project runs without it (pure Python, with a one-time warning). It makes search several times faster on the same data.
+
+**Windows (PowerShell)** - needs the C++ compiler once:
+```powershell
+winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+python -m pip install pybind11 cmake
+python scripts\build_native.py
+python -c "import paperlens.native as n; print(n.status())"     # have_native should be True
+python -m pytest tests\test_native.py                           # C++ must equal the Python twins
+python bench\native_speedup.py --docs 20000 --out docs\evidence\native-speedup-mypc-SYNTHETIC.json
+```
+**Linux**: `sudo apt install g++ cmake` (or your distro's equivalent), then the same `pip install` / `build_native.py` lines.
+Switch it off any time with `$env:PAPERLENS_NATIVE = "0"` (PowerShell) or `PAPERLENS_NATIVE=0` (bash).
+**Never built on Windows by me** - if the build fails, send me the last 30 lines of its output.
+
 ## Check your Windows machine (please do this first)
 
 The code was developed and tested on Linux. Windows differs in exactly the places crash-safety
@@ -169,6 +186,7 @@ src/paperlens/
   pipeline/    supervisor, reader/writer workers, shared memory, shared limiter  (E1)
   vectors/     embedders, 1-4 bit quantization, IVF, rank fusion (RRF)  (E3 semantic)
   graph/       CSR citation graph, PageRank/PPR/label propagation, MinHash+LSH, OpenAlex client, rerank  (E3 graph)
+  native/      C++17 source of the optional accelerator (pybind11 + CMake); Python twins in src/paperlens/native.py
   server/      query worker processes on read-only snapshots (Phase 5)
   harvest/     arXiv OAI-PMH harvester, limiter, fake server   (E1, supporting)
   synth.py     seeded synthetic data (plumbing tests only)
