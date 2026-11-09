@@ -2,7 +2,7 @@
 
 Status: **built** = code + passing tests for the whole requirement; **partial** = a named
 slice is built, the rest is planned; **planned** = nothing built yet.
-Test names are in `tests/`. Last updated: Phase 0.
+Test names are in `tests/`. Last updated: Phase 7.
 
 ## Functional
 
@@ -16,9 +16,9 @@ Test names are in `tests/`. Last updated: Phase 0.
 | FR6 | semantic search, compressed vectors | E3 | `vectors/quant.py` (1-4 bit RaBitQ-style codes), `vectors/ivf.py`, `vectors/embedders.py`, `store/index.py` (`search_vector`), `store/segment.py` | `test_vectors.py` (49), `test_vector_crash.py` (24) | **built, tested on Linux** with a stand-in embedder; **real embedding model NOT tested here**; no real-data quality numbers yet |
 | FR7 | hybrid RRF + category/year filters | E3 | `vectors/fusion.py`, `store/filters.py`, `IndexStore.search_hybrid` | `test_vectors.py` (RRF hand-computed, hybrid == RRF of the two lists, filters == brute force, zone map) | **built, tested on Linux** |
 | FR8 | citation rerank + near-duplicate removal | E3 | `graph/{csr,rank,rerank,minhash}.py`, `store/graphfile.py`, `search --graph-rerank`, `dupes`, `bench/graph_ablation.py` | `test_graph.py`, `test_minhash.py`, `test_graph_publish.py`, `test_cli_graph.py` | **built, tested on Linux** (PageRank/PPR equal a direct linear-algebra solution; LSH pairs equal brute force). **Whether reranking HELPS is NOT measured** on real data: the synthetic ablation only proves the keep/switch-off rule works |
-| FR9 | results with reasons: CLI + web | E3 | `cli.py` (`index`, `search --mode/--cat/--year-from`, `index-stats`, `fsck`) | `test_cli.py`, `test_cli_index.py` | **partial**: hybrid hits say which list found them and at which rank; richer plain-language reasons + web page = Phase 7 |
-| FR10 | one-command evaluation | E3 | - | - | planned (Phase 1+) |
-| FR11 | late interaction, key papers (challenge) | E3 | - | - | planned (Phase 6) |
+| FR9 | results with reasons: CLI + web | E3 | `explain.py`, `web/app.py`, `web/static/index.html`, `cli.py` (`search`, `serve-web`) | `test_web.py` (6), `test_cli_index.py` | **built, tested on Linux** (reason per hit: which list, rank, matched terms, duplicates). Browser look never checked in a real browser on your machine |
+| FR10 | one-command evaluation | E3 | `eval/beir.py`, `eval/metrics.py`, `scripts/evaluate_all.py` | `test_eval.py`, `test_beir.py` | **built**; run on SYNTHETIC data only (`docs/evidence/final-sandbox-SYNTHETIC.md`); real SciFact/SCIDOCS numbers pending |
+| FR11 | late interaction, key papers (challenge) | E3 | `vectors/late.py`, `discover.py`, CLI `similar`, `key-papers`, `search --late` | `test_discover.py`, `test_cli_graph.py`, `bench/late_ablation.py` | **built, Linux**; the encoder is a hashed-trigram STAND-IN, not ColBERT; no measured gain (synthetic at ceiling -> verdict: switch off) |
 
 ## Non-functional
 
