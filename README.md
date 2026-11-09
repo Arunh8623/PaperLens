@@ -194,3 +194,13 @@ src/paperlens/
 native/        C++17 + pybind11 (Phase 1b, empty for now)
 tests/  scripts/  docs/
 ```
+
+## Web page, evaluation and demo (Phase 7)
+
+    python -m pip install -e ".[web]"
+    python -m paperlens serve-web --index <index-dir>          # open http://127.0.0.1:8000
+    python scripts/evaluate_all.py --synthetic --out docs/evidence/final-sandbox-SYNTHETIC              # table: PaperLens vs SQLite FTS5 vs FAISS
+    python scripts/evaluate_all.py --beir-dir <scifact-dir> --beir-dir <scidocs-dir> --embedder st:<model> --out docs/evidence/final-mypc
+    python scripts/demo_kill9.py --rounds 3 --docs 4000         # kill -9 the writer, recover instantly (POSIX only)
+    python -m paperlens similar <id> --index <dir>              # "more like this"
+    python -m paperlens key-papers --index <dir>                # highest PageRank
