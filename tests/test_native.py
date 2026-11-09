@@ -221,3 +221,16 @@ def test_missing_extension_gives_a_clear_warning_and_python_still_works(monkeypa
     finally:
         monkeypatch.undo()
         importlib.reload(native)
+
+
+@needs_native
+@pytest.mark.parametrize("name", sorted(BAD))
+def test_bm25_accumulate_rejects_corrupt_postings_like_the_python_twin(name):
+    doclens = array.array("I", [5] * 10)
+    with pytest.raises(VarintError) as py_err:
+        native.bm25_accumulate_py(BAD[name], 0, 1, doclens, None, None, 1.0, K1, B, 4.0, np.zeros(10))
+    out = np.zeros(10)
+    with pytest.raises(VarintError) as cpp_err:
+        native.bm25_accumulate(BAD[name], 0, 1, doclens, None, None, 1.0, K1, B, 4.0, out)
+    assert str(py_err.value) == str(cpp_err.value)
+    assert not out.any()                                                            # nothing half-added before the error
