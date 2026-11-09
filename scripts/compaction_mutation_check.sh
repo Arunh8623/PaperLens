@@ -23,7 +23,7 @@ run C2_all_tombstones_dropped $CP '    tomb &= older_keys' '    tomb = set()' "t
 run C3_all_tombstones_kept $CP '    tomb &= older_keys' '    pass' "tests/test_compaction.py -k tombstones"
 run C4_gc_ignores_pins $I '            if name.startswith("seg-") and name not in listed and name not in pinned:' '            if name.startswith("seg-") and name not in listed:' "tests/test_compaction.py -k 'pins or pinned'"
 run C5_recovery_ignores_pins $I '            elif name.startswith("seg-") and name not in listed and pinned is not None and name not in pinned:' '            elif name.startswith("seg-") and name not in listed:' "tests/test_compaction.py -k restart"
-run C6_locate_forgets_pending_deletes $I '        for key in self.pending_tomb:                     # killed since the last flush (tombstone not written yet)' '        for key in ():' "tests/test_compaction.py -k pending"
+run C6_locate_forgets_pending_deletes $I '        for key in self.pending_tomb:                     # killed since the last flush (tombstone not written yet)' '        for key in ():' "tests/test_compaction.py -k 'pending or arrives'"
 run C7_segment_not_published $I '                publish_segment(self.seg_root, tmp, name)
                 new_name = name' '                new_name = name' "tests/test_compaction.py -k 'crash or merge_without'"
 run C8_stale_pins_count_as_alive $PN '        probe.acquire()                        # we could lock it -> the owner is gone' '        raise IndexLocked("x")' "tests/test_compaction.py -k dead_readers"
