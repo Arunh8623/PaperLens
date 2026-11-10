@@ -1,0 +1,59 @@
+{
+ "date": "2026-11-07 16:23:02",
+ "data": "synthetic clustered gaussian",
+ "n": 20000,
+ "dim": 384,
+ "queries": 100,
+ "rows": [
+  {
+   "bits": 1,
+   "bytes_per_vec": 60,
+   "ratio_vs_float32": 0.0391,
+   "recall10_codes_only": 0.283,
+   "recall10_rescored": 0.809,
+   "pool": 100,
+   "encode_seconds": 0.11,
+   "ms_per_query_incl_exact_ground_truth": 54.4,
+   "nfr7_pass": false
+  },
+  {
+   "bits": 2,
+   "bytes_per_vec": 108,
+   "ratio_vs_float32": 0.0703,
+   "recall10_codes_only": 0.416,
+   "recall10_rescored": 0.947,
+   "pool": 100,
+   "encode_seconds": 0.21,
+   "ms_per_query_incl_exact_ground_truth": 76.9,
+   "nfr7_pass": false
+  },
+  {
+   "bits": 3,
+   "bytes_per_vec": 156,
+   "ratio_vs_float32": 0.1016,
+   "recall10_codes_only": 0.65,
+   "recall10_rescored": 0.999,
+   "pool": 100,
+   "encode_seconds": 0.17,
+   "ms_per_query_incl_exact_ground_truth": 90.3,
+   "nfr7_pass": true
+  },
+  {
+   "bits": 4,
+   "bytes_per_vec": 204,
+   "ratio_vs_float32": 0.1328,
+   "recall10_codes_only": 0.818,
+   "recall10_rescored": 1.0,
+   "pool": 100,
+   "encode_seconds": 0.18,
+   "ms_per_query_incl_exact_ground_truth": 97.1,
+   "nfr7_pass": false
+  }
+ ],
+ "python": "3.13.18",
+ "platform": "Linux-6.18.44-fc-v310-x86_64-with-glibc2.39",
+ "numpy": "2.5.3",
+ "float16_copy_bytes_per_vec": 768,
+ "disk_note": "disk per vector = code bytes + float16 copy (the copy is kept for rescoring); codes save memory and scan time, not disk",
+ "note": "synthetic data shows the mechanism only"
+}

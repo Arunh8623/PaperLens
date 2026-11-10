@@ -1,0 +1,91 @@
+{
+ "recorded": "2026-11-09 11:23:47",
+ "python": "3.13.18",
+ "platform": "Linux-6.18.44-fc-v310-x86_64-with-glibc2.39",
+ "cpu_count": 2,
+ "synthetic": true,
+ "embedder": "hash:64",
+ "bits": 1,
+ "results": [
+  {
+   "dataset": "pl-synth-o49pp9v2",
+   "documents": 2000,
+   "embedder": "hash:64",
+   "nfr6_hybrid_at_least_best_single": false,
+   "build_seconds": 0.61,
+   "systems": {
+    "PaperLens bm25": {
+     "metrics": {
+      "ndcg@10": 0.10113262988497347,
+      "recall@100": 0.236,
+      "mrr@10": 0.265,
+      "queries": 5
+     },
+     "search_ms": {
+      "p50": 0.29,
+      "p95": 0.65,
+      "mean": 0.35
+     },
+     "index_bytes": 1803335
+    },
+    "PaperLens vector": {
+     "metrics": {
+      "ndcg@10": 0.152931815030316,
+      "recall@100": 0.24,
+      "mrr@10": 0.3333333333333333,
+      "queries": 5
+     },
+     "search_ms": {
+      "p50": 2.17,
+      "p95": 2.51,
+      "mean": 2.1
+     },
+     "index_bytes": 1803335
+    },
+    "PaperLens hybrid": {
+     "metrics": {
+      "ndcg@10": 0.12074498384329133,
+      "recall@100": 0.252,
+      "mrr@10": 0.3333333333333333,
+      "queries": 5
+     },
+     "search_ms": {
+      "p50": 2.7,
+      "p95": 2.76,
+      "mean": 2.62
+     },
+     "index_bytes": 1803335
+    },
+    "SQLite FTS5": {
+     "metrics": {
+      "ndcg@10": 0.06624785923277055,
+      "recall@100": 0.22400000000000003,
+      "mrr@10": 0.12023809523809523,
+      "queries": 5
+     },
+     "search_ms": {
+      "p50": 0.63,
+      "p95": 0.83
+     },
+     "index_bytes": 1523712,
+     "note": "SQLite 3.53.1 FTS5, own tokenizer, OR query, bm25()"
+    },
+    "FAISS flat (exact)": {
+     "metrics": {
+      "ndcg@10": 0.152931815030316,
+      "recall@100": 0.24,
+      "mrr@10": 0.3333333333333333,
+      "queries": 5
+     },
+     "search_ms": {
+      "p50": 0.05,
+      "p95": 0.15
+     },
+     "index_bytes": 512000,
+     "note": "faiss 1.15.1 IndexFlatIP, exact float32, same embeddings"
+    }
+   }
+  }
+ ],
+ "native_extension": true
+}

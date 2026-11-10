@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+data/
+*.so
+*.pyd
+windows-check-report.txt
+build/
+src/paperlens/_native*

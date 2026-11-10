@@ -1,0 +1,60 @@
+{
+ "recorded_utc": "2026-11-01T03:58:09Z",
+ "git_commit": "2ac9219",
+ "python": "3.13.18",
+ "platform": "Linux-6.18.44-fc-v185-x86_64-with-glibc2.39",
+ "cpu_count": 2,
+ "WARNING": "synthetic data, tiny vocabulary: shows which code dominates, NOT real performance",
+ "papers": 20000,
+ "ingest_seconds": 3.19,
+ "ingest_papers_per_second": 6264,
+ "index_bytes": 15975347,
+ "index": {
+  "live_docs": 20000,
+  "physical_docs": 20000,
+  "segments": 4,
+  "buffer_docs": 0,
+  "pending_tombstones": 0,
+  "last_seq": 20000,
+  "generation": 4,
+  "last_flushed_seq": 20000
+ },
+ "queries": 200,
+ "search_ms": {
+  "p50": 12.64,
+  "p95": 24.67,
+  "max": 35.78
+ },
+ "search_profile_top_self_time": [
+  {
+   "function": "varint.py:decode_uvarint",
+   "self_seconds": 0.7096,
+   "share_pct": 34.2
+  },
+  {
+   "function": "varint.py:decode_postings",
+   "self_seconds": 0.4695,
+   "share_pct": 22.6
+  },
+  {
+   "function": "index.py:search",
+   "self_seconds": 0.3159,
+   "share_pct": 15.2
+  },
+  {
+   "function": "~:<built-in method builtins.len>",
+   "self_seconds": 0.1504,
+   "share_pct": 7.2
+  },
+  {
+   "function": "heapq.py:nsmallest",
+   "self_seconds": 0.1403,
+   "share_pct": 6.8
+  },
+  {
+   "function": "~:<method 'get' of 'dict' objects>",
+   "self_seconds": 0.1344,
+   "share_pct": 6.5
+  }
+ ]
+}

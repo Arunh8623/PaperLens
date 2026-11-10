@@ -1,0 +1,33 @@
+{
+ "date": "2026-11-03 03:08:41",
+ "papers": 1500,
+ "burn_ms_simulated": 3.0,
+ "cpu_count": 2,
+ "platform": "Linux-6.18.44-fc-v230-x86_64-with-glibc2.39",
+ "python": "3.13.18",
+ "rows": [
+  {
+   "readers": 1,
+   "seconds": 5.134263913999916,
+   "all_runs": [
+    5.1922353370000565,
+    5.134263913999916
+   ],
+   "papers_per_second": 292.15482981111603,
+   "speedup": 1.0,
+   "efficiency": 1.0
+  },
+  {
+   "readers": 2,
+   "seconds": 2.875001644000008,
+   "all_runs": [
+    2.875001644000008,
+    2.882869903000028
+   ],
+   "papers_per_second": 521.7388320909064,
+   "speedup": 1.7858299054245348,
+   "efficiency": 0.8929149527122674
+  }
+ ],
+ "note": "burn_ms_simulated > 0 means reader CPU work is SIMULATED, not a real model"
+}

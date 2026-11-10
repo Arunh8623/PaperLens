@@ -1,0 +1,55 @@
+{
+ "date": "2026-11-04 13:59:30",
+ "papers": 4000,
+ "burn_ms_simulated": 5.0,
+ "cpu_count": 12,
+ "platform": "Windows-11-10.0.26300-SP0",
+ "python": "3.14.3",
+ "rows": [
+  {
+   "readers": 1,
+   "seconds": 21.479891800001496,
+   "all_runs": [
+    21.609000299999025,
+    21.479891800001496
+   ],
+   "papers_per_second": 186.22067733133187,
+   "speedup": 1.0,
+   "efficiency": 1.0
+  },
+  {
+   "readers": 2,
+   "seconds": 10.887284099997487,
+   "all_runs": [
+    10.887284099997487,
+    11.024180100001104
+   ],
+   "papers_per_second": 367.40108582276486,
+   "speedup": 1.9729338926690132,
+   "efficiency": 0.9864669463345066
+  },
+  {
+   "readers": 4,
+   "seconds": 6.471428699998796,
+   "all_runs": [
+    6.752648599998793,
+    6.471428699998796
+   ],
+   "papers_per_second": 618.1015329738152,
+   "speedup": 3.319188512423152,
+   "efficiency": 0.829797128105788
+  },
+  {
+   "readers": 8,
+   "seconds": 4.250431200001913,
+   "all_runs": [
+    4.250431200001913,
+    4.480241199999
+   ],
+   "papers_per_second": 941.0809896177593,
+   "speedup": 5.05357945800695,
+   "efficiency": 0.6316974322508687
+  }
+ ],
+ "note": "burn_ms_simulated > 0 means reader CPU work is SIMULATED, not a real model"
+}

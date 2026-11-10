@@ -1,0 +1,56 @@
+{
+ "recorded_utc": "2026-10-31T16:00:51Z",
+ "git_commit": "6d0cac5",
+ "git_tree_dirty": false,
+ "python": "3.13.18",
+ "platform": "Linux-6.18.44-fc-v185-x86_64-with-glibc2.39",
+ "cpu_count": 2,
+ "pytest_exit_code": 0,
+ "totals": {
+  "passed": 96,
+  "failed": 0,
+  "skipped": 0
+ },
+ "per_file": {
+  "tests/test_cli.py": {
+   "passed": 5,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_diary.py": {
+   "passed": 11,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_harvest.py": {
+   "passed": 24,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_limiter.py": {
+   "passed": 6,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_manifest.py": {
+   "passed": 10,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_paper.py": {
+   "passed": 17,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_synth.py": {
+   "passed": 4,
+   "failed": 0,
+   "skipped": 0
+  },
+  "tests/test_tokenizer.py": {
+   "passed": 19,
+   "failed": 0,
+   "skipped": 0
+  }
+ }
+}

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paperlens"
+version = "0.0.1"
+description = "Crash-safe hybrid (keyword + semantic) search engine for arXiv cs.* papers"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "fastapi", "uvicorn", "httpx"]
+web = ["fastapi", "uvicorn"]
+semantic = ["sentence-transformers"]          # real embedding models (not needed for the stand-in hash embedder)
+native = ["pybind11", "cmake"]                 # to build the optional C++ accelerator: python scripts/build_native.py
+
+[project.scripts]
+paperlens = "paperlens.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+paperlens = ["web/static/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]

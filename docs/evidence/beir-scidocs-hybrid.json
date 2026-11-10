@@ -1,0 +1,69 @@
+{
+ "recorded_utc": "2026-11-10T06:08:28Z",
+ "git_commit": "ece3b19",
+ "dataset": "scidocs",
+ "split": "test",
+ "documents": 25657,
+ "k": 100,
+ "metrics": {
+  "ndcg@10": 0.1539293253395399,
+  "recall@100": 0.35468333333333335,
+  "mrr@10": 0.273768253968254,
+  "queries": 1000
+ },
+ "build_seconds": 1736.05,
+ "index_bytes": 68679273,
+ "search_ms": {
+  "p50": 9.28,
+  "p95": 23.57,
+  "mean": 10.73
+ },
+ "modes": {
+  "bm25": {
+   "metrics": {
+    "ndcg@10": 0.1539293253395399,
+    "recall@100": 0.35468333333333335,
+    "mrr@10": 0.273768253968254,
+    "queries": 1000
+   },
+   "search_ms": {
+    "p50": 9.28,
+    "p95": 23.57,
+    "mean": 10.73
+   }
+  },
+  "vector": {
+   "metrics": {
+    "ndcg@10": 0.21697847224534608,
+    "recall@100": 0.5093166666666666,
+    "mrr@10": 0.36102103174603173,
+    "queries": 1000
+   },
+   "search_ms": {
+    "p50": 165.02,
+    "p95": 325.44,
+    "mean": 188.34
+   }
+  },
+  "hybrid": {
+   "metrics": {
+    "ndcg@10": 0.2002223232314227,
+    "recall@100": 0.4789166666666667,
+    "mrr@10": 0.33854484126984125,
+    "queries": 1000
+   },
+   "search_ms": {
+    "p50": 157.94,
+    "p95": 190.79,
+    "mean": 160.99
+   }
+  }
+ },
+ "embedder": "st:sentence-transformers/all-MiniLM-L6-v2",
+ "vec_bits": 1,
+ "nfr6_hybrid_at_least_best_single": false,
+ "python": "3.14.3",
+ "platform": "Windows-11-10.0.26300-SP0",
+ "cpu_count": 12,
+ "notes": "BM25 k1=1.2 b=0.75, no stemming, title counted twice (D3); see eval/beir.py; vector/hybrid use embedder st:sentence-transformers/all-MiniLM-L6-v2"
+}

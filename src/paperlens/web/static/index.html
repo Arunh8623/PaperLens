@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaperLens</title>
+<style>
+  :root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6a6860; --card:#ffffff; --line:#e3e0d8; --accent:#1b5e8a; --chip:#eef3f7; --warn:#8a5a1b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161715; --fg:#ecebe6; --muted:#9a988f; --card:#1f201e; --line:#33342f; --accent:#7db7de; --chip:#262d33; --warn:#d6a96a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: .9rem; }
+  form { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  input[type=search] { flex:1 1 260px; padding:10px 12px; font-size:1rem; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); }
+  select, input[type=number], input[type=text] { padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); font-size:.9rem; }
+  input[type=number] { width: 5.5em; }
+  button { padding:10px 16px; font-size:1rem; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.link { background:none; color:var(--accent); padding:0; font-size:.85rem; text-decoration:underline; }
+  label { font-size:.85rem; color:var(--muted); display:inline-flex; align-items:center; gap:4px; }
+  details { margin-top:8px; } summary { cursor:pointer; color:var(--muted); font-size:.9rem; }
+  .filters { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+  #status { margin:16px 0 8px; color:var(--muted); font-size:.85rem; min-height:1.2em; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:10px 0; }
+  .card h3 { margin:0 0 2px; font-size:1.02rem; } .card h3 a { color:var(--fg); text-decoration:none; }
+  .meta { color:var(--muted); font-size:.82rem; }
+  .abs { margin:6px 0; font-size:.92rem; }
+  .why { margin:8px 0 0; padding:0; list-style:none; display:flex; flex-wrap:wrap; gap:6px; }
+  .why li { background:var(--chip); border-radius:999px; padding:2px 10px; font-size:.78rem; }
+  .actions { margin-top:8px; display:flex; gap:14px; }
+  .err { color:var(--warn); }
+  .dups { color:var(--muted); font-size:.82rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>PaperLens</h1>
+  <p class="sub">Search computer-science papers by words and by meaning. Every result says why it is there.</p>
+  <form id="f">
+    <input type="search" id="q" placeholder="e.g. crash recovery in write-ahead logs" autofocus required>
+    <select id="mode" title="How to search">
+      <option value="hybrid">Words + meaning</option>
+      <option value="bm25">Words only</option>
+      <option value="vector">Meaning only</option>
+    </select>
+    <button type="submit">Search</button>
+  </form>
+  <details>
+    <summary>Filters and extras</summary>
+    <div class="filters">
+      <label>Category <input type="text" id="cat" placeholder="cs.DB" size="8"></label>
+      <label>Year from <input type="number" id="yf" min="1990" max="2100"></label>
+      <label>to <input type="number" id="yt" min="1990" max="2100"></label>
+      <label><input type="checkbox" id="graph"> use citations</label>
+      <label><input type="checkbox" id="late"> word-by-word rerank</label>
+      <label><input type="checkbox" id="dedupe" checked> hide near-duplicates</label>
+      <button type="button" class="link" id="keybtn">Key papers for this query</button>
+    </div>
+  </details>
+  <div id="status"></div>
+  <div id="out"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function params() {
+  const p = new URLSearchParams({q: $('q').value, mode: $('mode').value, k: 10});
+  if ($('cat').value.trim()) p.append('cat', $('cat').value.trim());
+  if ($('yf').value) p.set('year_from', $('yf').value);
+  if ($('yt').value) p.set('year_to', $('yt').value);
+  if ($('graph').checked) p.set('graph', 'true');
+  if ($('late').checked) p.set('late', 'true');
+  if ($('dedupe').checked) p.set('dedupe', 'true');
+  return p;
+}
+async function get(url) {
+  const r = await fetch(url);
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch (e) {} throw new Error(m); }
+  return r.json();
+}
+function card(h) {
+  const why = (h.why || []).map(w => `<li>${esc(w)}</li>`).join('');
+  return `<article class="card"><h3>${h.rank}. <a href="#" data-paper="${esc(h.arxiv_id)}">${esc(h.title)}</a></h3>
+    <div class="meta">${esc(h.arxiv_id)} · ${esc((h.categories || []).join(', '))} · ${esc(h.datestamp)} · ${esc((h.authors || []).join(', '))}</div>
+    <div class="abs">${esc(h.abstract || '')}${(h.abstract || '').length >= 400 ? '…' : ''}</div>
+    <ul class="why">${why}</ul>
+    <div class="actions"><button class="link" data-similar="${esc(h.arxiv_id)}">More like this</button></div></article>`;
+}
+function show(r, label) {
+  const dups = Object.keys(r.merged_duplicates || {}).length;
+  $('status').textContent = `${r.hits.length} results ${label || ''} · ${r.took_ms} ms · snapshot generation ${r.generation}` +
+    (dups ? ` · ${dups} near-duplicate(s) hidden` : '');
+  $('out').innerHTML = r.hits.length ? r.hits.map(card).join('') : '<p class="meta">No results. Try fewer or different words.</p>';
+}
+async function run(fn) { $('status').textContent = 'Searching…'; try { await fn(); } catch (e) { $('status').innerHTML = `<span class="err">${esc(e.message)}</span>`; $('out').innerHTML = ''; } }
+$('f').addEventListener('submit', e => { e.preventDefault(); run(async () => show(await get('/api/search?' + params()))); });
+$('keybtn').addEventListener('click', () => run(async () => {
+  if (!$('q').value.trim()) throw new Error('Type a query first.');
+  const r = await get('/api/key?' + new URLSearchParams({q: $('q').value, k: 5}));
+  $('status').textContent = `Key papers for this query · snapshot generation ${r.generation}`;
+  $('out').innerHTML = r.key.map((g, i) => `<article class="card"><h3>${i + 1}. ${esc(g.title)}</h3>
+    <div class="meta">${esc(g.arxiv_id)} · cited by ${g.cited_by_results} other results · PageRank ${g.pagerank.toFixed(5)}</div>
+    <ul class="why"><li>Central in the citation graph among this query's results</li></ul></article>`).join('');
+}));
+$('out').addEventListener('click', e => {
+  const sim = e.target.closest('[data-similar]'), pap = e.target.closest('[data-paper]');
+  if (sim) { e.preventDefault(); run(async () => show(await get('/api/similar/' + encodeURIComponent(sim.dataset.similar).replace(/%2F/g, '/')), `similar to ${sim.dataset.similar}`)); }
+  if (pap) { e.preventDefault(); run(async () => {
+    const r = await get('/api/paper/' + encodeURIComponent(pap.dataset.paper).replace(/%2F/g, '/'));
+    const p = r.paper; $('status').textContent = `Paper ${p.arxiv_id} · snapshot generation ${r.generation}`;
+    $('out').innerHTML = `<article class="card"><h3>${esc(p.title)}</h3><div class="meta">${esc((p.authors || []).join(', '))} · ${esc((p.categories || []).join(', '))} · ${esc(p.created || '')}${p.doi ? ' · doi ' + esc(p.doi) : ''}</div><p class="abs">${esc(p.abstract)}</p><div class="actions"><button class="link" data-similar="${esc(p.arxiv_id)}">More like this</button></div></article>`; }); }
+});
+fetch('/api/health').then(r => r.json()).then(h => { $('status').textContent = `Ready · snapshot generation ${h.generation}`; }).catch(() => {});
+</script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+{
+ "recorded_utc": "2026-11-10T05:18:48Z",
+ "git_commit": "ece3b19",
+ "dataset": "scifact",
+ "split": "test",
+ "documents": 5183,
+ "k": 100,
+ "modes": {
+  "bm25": {
+   "ndcg@10": 0.6739899448645537,
+   "recall@100": 0.8825555555555555,
+   "mrr@10": 0.6394563492063492,
+   "p50_ms": 3.6,
+   "p95_ms": 8.69
+  },
+  "vector": {
+   "ndcg@10": 0.649366762595965,
+   "recall@100": 0.925,
+   "mrr@10": 0.6071785714285715,
+   "p50_ms": 47.78,
+   "p95_ms": 63.19
+  },
+  "hybrid": {
+   "ndcg@10": 0.6941134465324745,
+   "recall@100": 0.9583333333333334,
+   "mrr@10": 0.6605701058201059,
+   "p50_ms": 46.69,
+   "p95_ms": 64.96
+  }
+ },
+ "queries": 300,
+ "build_seconds": 236.3,
+ "index_bytes": 15537405,
+ "embedder": "st:sentence-transformers/all-MiniLM-L6-v2",
+ "vec_bits": 1,
+ "nfr6_hybrid_at_least_best_single": true,
+ "python": "3.14.3",
+ "platform": "Windows-11-10.0.26300-SP0",
+ "cpu_count": 12,
+ "note": "Condensed copy of the JSON printed on Arun's Windows machine (his original file: docs/evidence/beir-scifact-hybrid.json on his PC)."
+}
