@@ -132,6 +132,7 @@ def run_beir(data_dir, split: str = "test", index_dir=None, k: int = 100, flush_
         with IndexStore(index_dir, flush_docs=flush_docs, vec_bits=vec_bits, ivf_min_docs=ivf_min_docs,
                         embedder_name=embedder.name if embedder else "") as st:
             items = list(corpus.items())
+            log(f"loaded {len(corpus)} documents, {len(qrels)} judged queries; indexing{' with embeddings (slow on CPU)' if embedder else ''}...")
             step = 256
             for a in range(0, len(items), step):
                 chunk = items[a:a + step]
@@ -143,6 +144,8 @@ def run_beir(data_dir, split: str = "test", index_dir=None, k: int = 100, flush_
                     st.put(PaperRecord(arxiv_id=did, datestamp=PLACEHOLDER_DATE, title=title, abstract=text),
                            vector=None if vecs is None else vecs[j])
                 st.commit()
+                log(f"  embedded+stored {min(a + step, len(items))}/{len(items)} documents, "
+                    f"{time.perf_counter() - t0:.0f} s elapsed")
             st.flush()
             build_s = time.perf_counter() - t0
             log(f"indexed {len(corpus)} documents in {build_s:.1f} s")
@@ -151,6 +154,7 @@ def run_beir(data_dir, split: str = "test", index_dir=None, k: int = 100, flush_
             if embedder is not None:
                 qids = sorted(qrels)
                 qv = dict(zip(qids, embedder.embed_texts([queries[q] for q in qids])))
+                log("evaluating vector-only and hybrid...")
                 modes["vector"] = _evaluate_mode(st, "vector", queries, qrels, k,
                                                  lambda qid, text: st.search_vector(qv[qid], k=k, nprobe=nprobe))
                 modes["hybrid"] = _evaluate_mode(st, "hybrid", queries, qrels, k,
