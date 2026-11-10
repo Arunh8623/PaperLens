@@ -73,7 +73,8 @@ class SentenceTransformerEmbedder(Embedder):
                                "python -m pip install sentence-transformers") from e
         self._model = SentenceTransformer(model_name)
         self.batch_size = batch_size
-        self.dim = int(self._model.get_sentence_embedding_dimension())
+        get_dim = getattr(self._model, "get_embedding_dimension", None) or self._model.get_sentence_embedding_dimension
+        self.dim = int(get_dim())          # newer sentence-transformers renamed this method
         self.name = f"st:{model_name}"
 
     def embed_texts(self, texts: list) -> np.ndarray:
