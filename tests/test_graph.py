@@ -257,7 +257,12 @@ def test_requests_respect_the_minimum_interval(tmp_path):
     with FakeOpenAlex(refs) as srv:
         fetch_citations(fast_client(srv.url, batch=5, limiter=MinIntervalLimiter(0.05)), ids, tmp_path / "c.jsonl")
         times = [t for t, _ in srv.log]
-    assert len(times) == 6 and min(b - a for a, b in zip(times, times[1:])) >= 0.05 - 0.01
+    # The limiter spaces the SENDS; the server stamps ARRIVAL. On Windows the arrival gap can be ~15 ms shorter
+    # (timer resolution + thread scheduling), so allow more slack there. The strict real-clock spacing check is in
+    # test_shared_limiter / the arXiv-spacing test.
+    import sys
+    slack = 0.03 if sys.platform == "win32" else 0.01
+    assert len(times) == 6 and min(b - a for a, b in zip(times, times[1:])) >= 0.05 - slack
 
 
 def test_api_key_never_appears_in_error_messages(tmp_path):

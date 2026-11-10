@@ -277,6 +277,13 @@ def test_a_dead_readers_pin_is_ignored_and_removed(tmp_path):
     assert pinned_segments(tmp_path / "ix") == set(st.manifest.segments)         # alive in ANOTHER process
     p.kill()
     p.wait()
+    # Windows releases a dead process's byte-range lock a little LATER than Linux (Microsoft documents that the
+    # unlock time depends on system resources), so poll briefly instead of checking once. Safe direction:
+    # until the lock is gone the writer simply keeps the segments.
+    import time
+    deadline = time.time() + 5
+    while pinned_segments(tmp_path / "ix") != set() and time.time() < deadline:
+        time.sleep(0.1)
     assert pinned_segments(tmp_path / "ix") == set()                             # lock gone with the process
     assert os.listdir(tmp_path / "ix" / "pins") == []
     st.close()
