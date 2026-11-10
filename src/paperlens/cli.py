@@ -41,7 +41,8 @@ def _cmd_harvest(a) -> int:
         return 2
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     state_path = a.state or a.out + ".state.json"
-    client = OAIClient(contact, base_url=a.base_url, limiter=MinIntervalLimiter(a.min_interval))
+    client = OAIClient(contact, base_url=a.base_url, limiter=MinIntervalLimiter(a.min_interval),
+                       log=lambda m: print(m, flush=True))
     try:
         state = harvest(client, set_spec=a.set, out_path=a.out, state_path=state_path,
                         from_date=a.from_date, max_records=a.max_records)

@@ -190,7 +190,7 @@ class OAIClient:
     def __init__(self, contact: str, *, base_url: str = DEFAULT_BASE_URL,
                  limiter: MinIntervalLimiter | None = None, max_retries: int = 8,
                  backoff_base: float = 5.0, max_backoff: float = 300.0,
-                 max_retry_after: float = 3600.0, timeout: float = 60.0):
+                 max_retry_after: float = 3600.0, timeout: float = 60.0, log=None):
         if not contact or "@" not in contact:
             raise ValueError("a contact email is required (put it in the User-Agent)")
         self.base_url = base_url
@@ -202,6 +202,7 @@ class OAIClient:
         self.max_retry_after = max_retry_after
         self.timeout = timeout
         self.requests_made = 0
+        self.log = log or (lambda m: None)        # progress / retry messages (CLI passes print)
 
     def _get(self, params: dict) -> bytes:
         url = f"{self.base_url}?{urllib.parse.urlencode(params)}"
@@ -209,6 +210,7 @@ class OAIClient:
         while True:
             self.limiter.wait()
             self.requests_made += 1
+            self.log(f"request {self.requests_made}: asking arXiv (waits up to {self.timeout:.0f}s for the answer)...")
             req = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
             delay, why = None, ""
             try:
@@ -233,6 +235,7 @@ class OAIClient:
                 raise HarvestError(f"giving up after {failures} failed attempts ({why})")
             if delay is None:                     # no Retry-After: exponential backoff
                 delay = min(self.backoff_base * 2 ** (failures - 1), self.max_backoff)
+            self.log(f"attempt {failures} failed ({why}); waiting {delay:.0f}s before retrying")
             self.limiter.penalize(delay)
 
     def list_records(self, *, set_spec="cs", from_date=None, token=None,
