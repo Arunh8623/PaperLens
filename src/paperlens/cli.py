@@ -79,7 +79,10 @@ def _cmd_index(a) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     with st:
+        import time
         chunk = []
+        have = st.live_keys()            # papers already stored: a re-run after Ctrl+C skips them (no re-embedding)
+        t0, seen = time.perf_counter(), 0
 
         def put_chunk():
             vecs = emb.embed_texts([_paper_text(p) for p in chunk]) if emb else None
@@ -89,9 +92,18 @@ def _cmd_index(a) -> int:
             chunk.clear()
 
         for p in read_jsonl(a.input, skip_bad=a.skip_bad):
+            seen += 1
+            if p.key in have:
+                outcomes["already_stored"] += 1
+                continue
             chunk.append(p)
             if len(chunk) >= a.batch:
                 put_chunk()
+                if (seen // a.batch) % 5 == 0:
+                    dt = time.perf_counter() - t0
+                    print(f"{seen} papers read, {sum(outcomes.values())} handled, "
+                          f"{seen / dt:.1f} papers/s, {dt:.0f} s elapsed (safe to Ctrl+C: finished batches are kept)",
+                          flush=True)
         if chunk:
             put_chunk()
         st.commit()

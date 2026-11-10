@@ -45,7 +45,7 @@ def test_reindexing_same_file_changes_nothing(tmp_path):
     ix = str(tmp_path / "ix")
     cli("index", "--index", ix, "--input", str(data))
     r = cli("index", "--index", ix, "--input", str(data))
-    assert "'duplicate': 60" in r.stdout and "'live_docs': 60" in r.stdout
+    assert "'already_stored': 60" in r.stdout and "'live_docs': 60" in r.stdout
 
 
 def test_fsck_exit_code_on_damage(tmp_path):
