@@ -295,3 +295,28 @@ def test_real_time_spacing_measured_by_the_server(tmp_path):
     assert len(times) == 3
     gaps = [b - a for a, b in zip(times, times[1:])]
     assert min(gaps) >= interval - 0.06, gaps       # measured at the SERVER; 60 ms slack for Windows' ~15 ms clock tick
+
+
+# ---------------------------------------------------------------- date windows (--from-date + --until-date)
+def test_window_harvest_returns_only_the_window(tmp_path, papers):
+    ds = sorted({p.datestamp for p in papers})
+    lo, hi = ds[len(ds) // 4], ds[len(ds) // 2]
+    ft = FakeTime()
+    with FakeOAIServer(papers, page_size=20) as srv:
+        client, out, st = setup(tmp_path, srv, ft)
+        state = harvest(client, out_path=out, state_path=st, from_date=lo, until_date=hi, log=lambda *_: None)
+        assert all(q.get("until") == hi for _, q in srv.log if "resumptionToken" not in q)
+    want = {p.key for p in papers if lo <= p.datestamp <= hi}
+    assert state["done"] and want and keys_in(out) == want          # inclusive on both ends, nothing outside
+
+
+def test_window_survives_an_expired_token(tmp_path, papers):
+    ds = sorted({p.datestamp for p in papers})
+    lo, hi = ds[0], ds[len(ds) // 2]
+    ft = FakeTime()
+    with FakeOAIServer(papers, page_size=10, faults={2: ("expire",)}) as srv:
+        client, out, st = setup(tmp_path, srv, ft)
+        harvest(client, out_path=out, state_path=st, from_date=lo, until_date=hi, log=lambda *_: None)
+        restart_q = srv.log[2][1]
+    assert restart_q.get("until") == hi                              # the window end is kept after the restart
+    assert keys_in(out) == {p.key for p in papers if lo <= p.datestamp <= hi}

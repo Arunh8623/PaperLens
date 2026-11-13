@@ -138,7 +138,7 @@ class FakeOAIServer:
             return reply(200, self._error("badVerb", "Invalid verb provided."))
         if "resumptionToken" in q:
             try:
-                gen, frm, off = q["resumptionToken"].split("|")
+                gen, frm, until, off = q["resumptionToken"].split("|")
                 gen, off = int(gen), int(off)
             except ValueError:
                 return reply(200, self._error("badResumptionToken", "malformed"))
@@ -149,9 +149,9 @@ class FakeOAIServer:
                 return reply(200, self._error("badArgument", "metadataPrefix required"))
             if q.get("set") not in (None, "cs"):
                 return reply(200, self._error("noRecordsMatch", "no such set"))
-            frm, off = q.get("from", ""), 0
+            frm, until, off = q.get("from", ""), q.get("until", ""), 0
 
-        sel = [p for p in self.papers if p.datestamp >= frm] if frm else self.papers
+        sel = [p for p in self.papers if (not frm or p.datestamp >= frm) and (not until or p.datestamp <= until)]   # until is inclusive
         if not sel:
             return reply(200, self._error("noRecordsMatch", "no records"))
         chunk = sel[off:off + self.page_size]
@@ -159,7 +159,7 @@ class FakeOAIServer:
         if off == 0 and not q.get("resumptionToken"):
             recs = "".join(deleted_xml(a, d) for a, d in self.deleted) + recs
         more = off + self.page_size < len(sel)
-        tok = f"<resumptionToken>{self.generation}|{frm}|{off + self.page_size}</resumptionToken>" \
+        tok = f"<resumptionToken>{self.generation}|{frm}|{until}|{off + self.page_size}</resumptionToken>" \
             if more else "<resumptionToken/>"
         body = self._wrap(f"<ListRecords>{recs}{tok}</ListRecords>")
         if fault and fault[0] == "garbage":

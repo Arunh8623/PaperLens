@@ -238,7 +238,7 @@ class OAIClient:
             self.log(f"attempt {failures} failed ({why}); waiting {delay:.0f}s before retrying")
             self.limiter.penalize(delay)
 
-    def list_records(self, *, set_spec="cs", from_date=None, token=None,
+    def list_records(self, *, set_spec="cs", from_date=None, until_date=None, token=None,
                      metadata_prefix="arXiv") -> Page:
         if token:
             params = {"verb": "ListRecords", "resumptionToken": token}
@@ -248,6 +248,8 @@ class OAIClient:
                 params["set"] = set_spec
             if from_date:
                 params["from"] = from_date
+            if until_date:
+                params["until"] = until_date          # a window: only records modified between from and until
         failures = 0
         while True:
             body = self._get(params)
@@ -279,7 +281,7 @@ def _save_state(path, state):
 
 
 def harvest(client: OAIClient, *, set_spec: str = "cs", out_path: str, state_path: str,
-            from_date: str | None = None, max_records: int | None = None,
+            from_date: str | None = None, until_date: str | None = None, max_records: int | None = None,
             max_restarts: int = 5, log=print) -> dict:
     """Run (or resume) a harvest. Returns the final state dict.
 
@@ -288,7 +290,7 @@ def harvest(client: OAIClient, *, set_spec: str = "cs", out_path: str, state_pat
     calling again with the same state_path.
     """
     state = _load_state(state_path) or {
-        "version": 1, "set": set_spec, "from_date": from_date, "token": None,
+        "version": 1, "set": set_spec, "from_date": from_date, "until_date": until_date, "token": None,
         "newest_datestamp": None, "lines_written": 0, "pages": 0, "restarts": 0,
         "skipped_bad": 0, "deleted_seen": 0, "out_of_order": 0, "done": False,
     }
@@ -300,7 +302,7 @@ def harvest(client: OAIClient, *, set_spec: str = "cs", out_path: str, state_pat
     restarts_now = 0
     while True:
         try:
-            page = client.list_records(set_spec=set_spec, from_date=state["from_date"],
+            page = client.list_records(set_spec=set_spec, from_date=state["from_date"], until_date=state.get("until_date"),
                                        token=state["token"])
         except TokenExpired:
             restarts_now += 1

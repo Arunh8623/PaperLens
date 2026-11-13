@@ -204,3 +204,18 @@ tests/  scripts/  docs/
     python scripts/demo_kill9.py --rounds 3 --docs 4000         # kill -9 the writer, recover instantly (POSIX only)
     python -m paperlens similar <id> --index <dir>              # "more like this"
     python -m paperlens key-papers --index <dir>                # highest PageRank
+
+
+## Papers from many years (2015 to 2026)
+
+`harvest --from-date` alone starts at one date and runs forward, so an index built that way only holds recent papers.
+`scripts/harvest_years.py` instead fetches a few small windows in every year (by default one week each in February, May,
+August and November, about 300 records per window) and merges them:
+
+    python scripts/harvest_years.py --contact you@example.com --first 2015 --last 2026
+    python -m paperlens index --index data\ixs --input data\arxiv_cs_years.jsonl --embedder st:sentence-transformers/all-MiniLM-L6-v2
+
+Close `serve-web` first (the index has a single writer). Papers already stored are skipped. Note: arXiv's OAI date is the
+last-MODIFIED date, so old papers that were later revised do not appear in their original year; the search page's year
+filter uses the real submission year (`created`). You can also run a single window by hand with
+`harvest --from-date 2018-03-01 --until-date 2018-03-07`.

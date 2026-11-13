@@ -45,7 +45,7 @@ def _cmd_harvest(a) -> int:
                        log=lambda m: print(m, flush=True))
     try:
         state = harvest(client, set_spec=a.set, out_path=a.out, state_path=state_path,
-                        from_date=a.from_date, max_records=a.max_records)
+                        from_date=a.from_date, until_date=a.until_date, max_records=a.max_records)
     except HarvestError as e:
         print(f"harvest stopped: {e}\n(re-run the same command to resume)", file=sys.stderr)
         return 1
@@ -450,6 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("--max-records", type=int, help="stop after about this many lines (resumable)")
     h.add_argument("--min-interval", type=float, default=ARXIV_MIN_INTERVAL,
                    help=f"seconds between requests; minimum {ARXIV_RULE_SECONDS}")
+    h.add_argument("--until-date", help="YYYY-MM-DD: only records modified on/before this day (with --from-date: a time window)")
     h.add_argument("--timeout", type=float, default=180.0,
                    help="seconds to wait for each arXiv answer (big first pages are slow; default 180)")
     h.add_argument("--base-url", default=DEFAULT_BASE_URL)
