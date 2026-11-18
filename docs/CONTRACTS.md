@@ -214,6 +214,17 @@ POSIX-only. Power-loss safety is **not** claimed anywhere until tested on real h
 
 ---
 
+## 11. Side files (Phase 8) `BUILT` (`enrich/`)
+
+Not part of the index; safe to delete. Written next to the index folder `<ix>`.
+
+* `<ix>.openalex_meta.jsonl`: one JSON object per line, appended and fsync'ed per batch, resumable:
+  `{arxiv_id, openalex_id|null, matched_by "doi"|"location"|null, cited_by_count|null, type, published bool,
+  basis "journal-location"|"publisher-doi"|"", doi (publisher DOI or ""), venue, venue_type, year, volume, issue, pages,
+  publisher_url, retracted bool, fetched YYYY-MM-DD}`. A torn last line is ignored. `openalex_id: null` = OpenAlex does not know it.
+* `<ix>.quickread/<arxiv_id with / replaced by _>.json`: `{arxiv_id, model, source "pdf"|"abstract", generated, summary{tldr,problem,method,results,limitations}}`,
+  written atomically (tmp + fsync + rename).
+
 ## Decisions the brief did not specify (please review at sign-off)
 
 | # | Decision | Why |

@@ -233,7 +233,13 @@ def _cmd_serve_web(a) -> int:
     except ImportError:
         print("error: the web UI needs FastAPI: python -m pip install fastapi uvicorn", file=sys.stderr)
         return 1
-    app = create_app(a.index, workers=a.workers)
+    from .enrich.quickread import QuickRead
+    from .web.app import default_meta_path, default_quickread_dir
+    meta = a.meta or default_meta_path(a.index)
+    qr = QuickRead(a.quickread_dir or default_quickread_dir(a.index), model=a.gemini_model, contact=a.contact or "")
+    app = create_app(a.index, workers=a.workers, meta_path=meta, quickread=qr)
+    print(f"publication/citation data: {meta} ({'found' if os.path.exists(meta) else 'not found - run `enrich` to create it'})")
+    print(f"AI Quick read: {'ON, model ' + qr.model if qr.available else 'OFF (set GEMINI_API_KEY and restart to turn it on)'}")
     print(f"PaperLens web UI: http://{a.host}:{a.port}   (Ctrl+C to stop)")
     uvicorn.run(app, host=a.host, port=a.port, log_level="warning")
     return 0
@@ -339,6 +345,32 @@ def _cmd_citations(a) -> int:
     known = sum(1 for r in recs.values() if r["openalex_id"])
     print(f"done: {known}/{len(ids)} papers known to OpenAlex; {client.requests_made} requests, "
           f"{client.spent_units / 1e6:.4f} USD (by our own accounting)")
+    return 0
+
+
+def _cmd_enrich(a) -> int:
+    """Ask OpenAlex who published each paper and how many papers cite it; save to a side file (never the index)."""
+    from .enrich.openalex_meta import fetch_meta
+    from .graph.openalex import KEY_DAILY, KEYLESS_DAILY, BudgetExhausted, OpenAlexClient, OpenAlexError
+    from .pipeline.shared_limiter import SharedBudget
+    from .store.index import IndexStore
+    from .web.app import default_meta_path
+    key = a.api_key or os.environ.get("OPENALEX_API_KEY")
+    out = a.out or default_meta_path(a.index)
+    cap = int(a.max_spend_usd * 1_000_000) if a.max_spend_usd is not None else (KEY_DAILY if key else KEYLESS_DAILY)
+    with IndexStore(a.index) as st:
+        ids = sorted(st.live)
+    client = OpenAlexClient(api_key=key, contact=a.contact, batch=a.batch, budget=SharedBudget(cap),
+                            **({"base_url": a.base_url} if a.base_url else {}))
+    print(f"asking OpenAlex about {len(ids)} papers -> {out}")
+    try:
+        stats = fetch_meta(client, ids, out, log=print)
+    except (BudgetExhausted, OpenAlexError) as e:
+        print(f"stopped: {e}\nprogress is saved in {out}; run again to continue", file=sys.stderr)
+        return 2
+    print(f"done: {stats['by_doi']} found by arXiv DOI, {stats['by_location']} found by location, "
+          f"{stats['unknown']} unknown to OpenAlex (location lookup: {stats['fallback']}); "
+          f"{client.requests_made} requests, {client.spent_units / 1e6:.4f} USD (by our own accounting)")
     return 0
 
 
@@ -516,6 +548,10 @@ def build_parser() -> argparse.ArgumentParser:
     sw.add_argument("--host", default="127.0.0.1")
     sw.add_argument("--port", type=int, default=8000)
     sw.add_argument("--workers", type=int, default=2)
+    sw.add_argument("--meta", help="publication/citation side file made by `enrich` (default: <index>.openalex_meta.jsonl)")
+    sw.add_argument("--quickread-dir", help="where AI summaries are saved (default: <index>.quickread)")
+    sw.add_argument("--gemini-model", help="Gemini model for Quick read (default gemini-3-flash-preview, or env GEMINI_MODEL)")
+    sw.add_argument("--contact", help="your e-mail, sent in the User-Agent when a paper's PDF is fetched from arXiv")
     sw.set_defaults(fn=_cmd_serve_web)
 
     sq = sub.add_parser("serve-query", help="run query worker processes on a read-only snapshot (type queries on stdin)")
@@ -562,6 +598,16 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--batch", type=int, default=50, help="papers per request (1-100)")
     c.add_argument("--base-url", help=argparse.SUPPRESS)      # tests point this at a local fake server
     c.set_defaults(fn=_cmd_citations)
+
+    en = sub.add_parser("enrich", help="fetch publication info + citation counts from OpenAlex (resumable, budget-capped)")
+    en.add_argument("--index", required=True)
+    en.add_argument("--out", help="side file (default: <index>.openalex_meta.jsonl, which serve-web picks up by itself)")
+    en.add_argument("--contact", help="your contact e-mail, sent in the User-Agent")
+    en.add_argument("--api-key", help="OpenAlex key (or env OPENALEX_API_KEY); never printed")
+    en.add_argument("--max-spend-usd", type=float, help="hard cap for this run")
+    en.add_argument("--batch", type=int, default=50, help="papers per request (1-100)")
+    en.add_argument("--base-url", help=argparse.SUPPRESS)
+    en.set_defaults(fn=_cmd_enrich)
 
     gb = sub.add_parser("graph-build", help="turn fetched citations into a graph snapshot published in the index")
     gb.add_argument("--index", required=True)

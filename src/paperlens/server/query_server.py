@@ -23,7 +23,8 @@ def _hit_dict(reader, rank, h, mode, query="", moves=None):
     p = reader.get(h.arxiv_id)
     d = {"rank": rank, "arxiv_id": h.arxiv_id, "score": float(h.score), "title": p.title if p else "",
          "categories": list(p.categories) if p else [], "datestamp": p.datestamp if p else "",
-         "authors": list(p.authors[:4]) if p else [], "abstract": (p.abstract[:400] if p else "")}
+         "authors": list(p.authors[:4]) if p else [], "abstract": (p.abstract[:400] if p else ""),
+         "doi": p.doi if p else "", "created": p.created if p else ""}
     if mode == "hybrid":
         d["bm25_rank"], d["vec_rank"] = h.bm25_rank, h.vec_rank
     d["why"] = reasons(query, p, mode, getattr(h, "bm25_rank", None) if mode == "hybrid" else None,

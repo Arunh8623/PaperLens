@@ -1,0 +1,148 @@
+{
+ "recorded": "2026-11-10 13:01:45",
+ "python": "3.14.3",
+ "platform": "Windows-11-10.0.26300-SP0",
+ "cpu_count": 12,
+ "synthetic": false,
+ "embedder": "st:sentence-transformers/all-MiniLM-L6-v2",
+ "bits": 1,
+ "results": [
+  {
+   "dataset": "scifact",
+   "documents": 5183,
+   "embedder": "st:sentence-transformers/all-MiniLM-L6-v2",
+   "nfr6_hybrid_at_least_best_single": true,
+   "build_seconds": 294.13,
+   "systems": {
+    "PaperLens bm25": {
+     "metrics": {
+      "ndcg@10": 0.6739899448645537,
+      "recall@100": 0.8825555555555555,
+      "mrr@10": 0.6394563492063492,
+      "queries": 300
+     },
+     "search_ms": {
+      "p50": 2.98,
+      "p95": 7.04,
+      "mean": 3.33
+     },
+     "index_bytes": 15537405
+    },
+    "PaperLens vector": {
+     "metrics": {
+      "ndcg@10": 0.649366762595965,
+      "recall@100": 0.925,
+      "mrr@10": 0.6071785714285715,
+      "queries": 300
+     },
+     "search_ms": {
+      "p50": 29.7,
+      "p95": 37.65,
+      "mean": 30.99
+     },
+     "index_bytes": 15537405
+    },
+    "PaperLens hybrid": {
+     "metrics": {
+      "ndcg@10": 0.6941134465324745,
+      "recall@100": 0.9583333333333334,
+      "mrr@10": 0.6605701058201059,
+      "queries": 300
+     },
+     "search_ms": {
+      "p50": 73.89,
+      "p95": 94.28,
+      "mean": 69.49
+     },
+     "index_bytes": 15537405
+    },
+    "SQLite FTS5": {
+     "metrics": {
+      "ndcg@10": 0.6669577894555595,
+      "recall@100": 0.8792222222222221,
+      "mrr@10": 0.6317248677248677,
+      "queries": 300
+     },
+     "search_ms": {
+      "p50": 8.61,
+      "p95": 16.59
+     },
+     "index_bytes": 14909440,
+     "note": "SQLite 3.50.4 FTS5, own tokenizer, OR query, bm25()"
+    },
+    "FAISS flat (exact)": {
+     "skipped": "faiss not installed (python -m pip install faiss-cpu)"
+    }
+   }
+  },
+  {
+   "dataset": "scidocs",
+   "documents": 25657,
+   "embedder": "st:sentence-transformers/all-MiniLM-L6-v2",
+   "nfr6_hybrid_at_least_best_single": false,
+   "build_seconds": 1313.2,
+   "systems": {
+    "PaperLens bm25": {
+     "metrics": {
+      "ndcg@10": 0.1539293253395399,
+      "recall@100": 0.35468333333333335,
+      "mrr@10": 0.273768253968254,
+      "queries": 1000
+     },
+     "search_ms": {
+      "p50": 8.86,
+      "p95": 22.6,
+      "mean": 10.32
+     },
+     "index_bytes": 68679273
+    },
+    "PaperLens vector": {
+     "metrics": {
+      "ndcg@10": 0.21697847224534608,
+      "recall@100": 0.5093166666666666,
+      "mrr@10": 0.36102103174603173,
+      "queries": 1000
+     },
+     "search_ms": {
+      "p50": 141.04,
+      "p95": 161.49,
+      "mean": 143.21
+     },
+     "index_bytes": 68679273
+    },
+    "PaperLens hybrid": {
+     "metrics": {
+      "ndcg@10": 0.2002223232314227,
+      "recall@100": 0.4789166666666667,
+      "mrr@10": 0.33854484126984125,
+      "queries": 1000
+     },
+     "search_ms": {
+      "p50": 150.31,
+      "p95": 167.37,
+      "mean": 151.44
+     },
+     "index_bytes": 68679273
+    },
+    "SQLite FTS5": {
+     "metrics": {
+      "ndcg@10": 0.15431830061624216,
+      "recall@100": 0.3505,
+      "mrr@10": 0.2750638888888889,
+      "queries": 1000
+     },
+     "search_ms": {
+      "p50": 9.34,
+      "p95": 17.89
+     },
+     "index_bytes": 58839040,
+     "note": "SQLite 3.50.4 FTS5, own tokenizer, OR query, bm25()"
+    },
+    "FAISS flat (exact)": {
+     "skipped": "faiss not installed (python -m pip install faiss-cpu)"
+    }
+   }
+  }
+ ],
+ "native_extension": false
+}

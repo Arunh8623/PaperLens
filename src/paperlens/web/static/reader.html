@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paper · PaperLens</title>
+<style>
+  :root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6a6860; --card:#ffffff; --line:#e3e0d8; --accent:#1b5e8a; --chip:#eef3f7; --warn:#8a5a1b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161715; --fg:#ecebe6; --muted:#9a988f; --card:#1f201e; --line:#33342f; --accent:#7db7de; --chip:#262d33; --warn:#d6a96a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color:var(--accent); }
+  header { padding:14px 16px 10px; border-bottom:1px solid var(--line); background:var(--card); }
+  .back { font-size:.85rem; text-decoration:none; }
+  h1 { font-size:1.25rem; margin:6px 0 2px; line-height:1.3; }
+  .meta { color:var(--muted); font-size:.85rem; } .pub { font-size:.88rem; margin-top:4px; }
+  .badge { display:inline-block; font-size:.7rem; padding:0 7px; border-radius:999px; background:var(--chip); margin-right:6px; }
+  .badge.ok { background:#e2f1e4; color:#1f5a2a; } .badge.bad { background:#f6e0e0; color:#8a1f1f; }
+  @media (prefers-color-scheme: dark) { .badge.ok { background:#1f3a25; color:#9bd7a6; } .badge.bad { background:#3d2222; color:#e9a0a0; } }
+  .layout { display:grid; grid-template-columns: 1fr 360px; gap:14px; padding:14px 16px 32px; max-width:1500px; margin:0 auto; }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+  .tabs { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:8px; }
+  .tabs button { padding:6px 12px; font-size:.9rem; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); cursor:pointer; }
+  .tabs button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .tabs .open { margin-left:auto; font-size:.85rem; }
+  iframe { width:100%; height:78vh; min-height:480px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .hint { color:var(--muted); font-size:.78rem; margin-top:6px; }
+  aside section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  aside h2 { margin:0 0 6px; font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+  aside p { margin:0; font-size:.9rem; }
+  button.go { padding:8px 14px; font-size:.9rem; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  .qr h4 { margin:10px 0 2px; font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); } .qr h4:first-child { margin-top:0; }
+  .qr .foot { margin-top:10px; font-size:.75rem; color:var(--muted); } .err { color:var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/">&larr; back to search</a>
+  <h1 id="title">Loading…</h1>
+  <div class="meta" id="meta"></div>
+  <div class="pub" id="pub"></div>
+</header>
+<div class="layout">
+  <div>
+    <div class="tabs">
+      <button id="tpdf" class="on">[PDF]</button><button id="thtml">[HTML]</button>
+      <a class="open" id="open" href="#" target="_blank" rel="noopener">Open in a new tab &#8599;</a>
+    </div>
+    <iframe id="view" title="Full paper" referrerpolicy="no-referrer"></iframe>
+    <div class="hint" id="hint">Full paper from arXiv. If the viewer stays blank, your browser or arXiv refused to show it inside this page: use "Open in a new tab".</div>
+  </div>
+  <aside>
+    <section><h2>&#10022; Quick read (AI)</h2><div id="qrbox"><button class="go" id="qrbtn">Summarise this paper</button>
+      <div class="hint">Uses Google's Gemini on the server. The first time takes 10-60 s, then it is saved.</div></div></section>
+    <section><h2>Abstract</h2><p id="abs"></p></section>
+  </aside>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const idPath = id => encodeURIComponent(id).replace(/%2F/g, '/');
+const ID = decodeURIComponent(location.pathname.replace(/^\/paper\//, ''));
+let links = {};
+function show(which) {
+  const url = links[which]; if (!url) return;
+  $('tpdf').classList.toggle('on', which === 'pdf'); $('thtml').classList.toggle('on', which === 'html');
+  // Chrome refuses to show a PDF inside a sandboxed frame, so only the HTML tab (third-party page) is sandboxed.
+  if (which === 'html') $('view').setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups'); else $('view').removeAttribute('sandbox');
+  $('view').src = url; $('open').href = url;
+  $('hint').textContent = which === 'html'
+    ? 'HTML version (best guess: older or unusual papers may have none; then use [PDF]). If blank, use "Open in a new tab".'
+    : 'Full paper from arXiv. If the viewer stays blank, your browser or arXiv refused to show it inside this page: use "Open in a new tab".';
+}
+function renderQuick(r) {
+  const s = r.summary || {};
+  const rows = [['tldr', 'In short'], ['problem', 'Problem'], ['method', 'Method'], ['results', 'Results'], ['limitations', 'Limits']];
+  $('qrbox').className = 'qr';
+  $('qrbox').innerHTML = rows.filter(([k]) => s[k]).map(([k, t]) => `<h4>${t}</h4><p>${esc(s[k])}</p>`).join('') +
+    `<div class="foot">AI-generated by ${esc(r.model)} from ${r.source === 'pdf' ? 'the full PDF' : 'the abstract only (the PDF could not be fetched)'} · ${esc(r.generated)}${r.cached ? ' · saved copy' : ''}. It can make mistakes: check the paper.</div>`;
+}
+async function quick() {
+  $('qrbox').innerHTML = '<p>Reading the paper with Gemini…</p>';
+  try {
+    const r = await fetch('/api/quickread/' + idPath(ID), {method: 'POST', headers: {'X-PaperLens': '1'}});
+    const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText);
+    renderQuick(j);
+  } catch (e) { $('qrbox').innerHTML = `<p class="err">${esc(e.message)}</p><button class="go" id="qrbtn2">Try again</button>`; $('qrbtn2').onclick = quick; }
+}
+(async () => {
+  try {
+    const r = await fetch('/api/paper/' + idPath(ID)); const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    const p = j.paper, pub = p.pub || {}; links = p.links || {};
+    document.title = p.title + ' · PaperLens';
+    $('title').textContent = p.title;
+    $('meta').textContent = `${p.arxiv_id} · ${(p.authors || []).join(', ')} · ${(p.categories || []).join(', ')} · ${p.created || ''}` +
+      (pub.cited_by != null ? ` · Cited by ${pub.cited_by.toLocaleString()} (OpenAlex)` : '');
+    const retracted = pub.retracted ? '<span class="badge bad">Retracted</span>' : '';
+    $('pub').innerHTML = pub.published
+      ? `${retracted}<span class="badge ok">Published</span>${esc(pub.pub_info || (pub.basis === 'arxiv-doi' ? 'DOI supplied by the authors on arXiv' : 'publisher version exists'))}` +
+        (pub.doi ? ` · DOI <a href="${esc(pub.doi_url)}" target="_blank" rel="noopener">${esc(pub.doi)}</a>` : '') +
+        (pub.publisher_url ? ` · <a href="${esc(pub.publisher_url)}" target="_blank" rel="noopener">publisher page</a>` : '')
+      : `${retracted}<span class="badge">Preprint</span>${pub.have_meta ? 'no published version found in OpenAlex' : 'publication status not checked'}`;
+    $('abs').textContent = p.abstract;
+    show('pdf');
+    $('tpdf').onclick = () => show('pdf'); $('thtml').onclick = () => show('html');
+    $('qrbtn').onclick = quick;
+    const c = await (await fetch('/api/quickread/' + idPath(ID))).json();      // free: only reads the saved copy
+    if (c.result) renderQuick({...c.result, cached: true});
+  } catch (e) { $('title').textContent = 'Could not open this paper'; $('meta').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+})();
+</script>
+</body>
+</html>

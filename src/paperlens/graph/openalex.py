@@ -141,6 +141,10 @@ class OpenAlexClient:
                 delay = min(self.backoff_base * 2 ** (failures - 1), self.max_backoff)
             self.limiter.penalize(delay)
 
+    def get_works(self, params: dict) -> dict:
+        """One budgeted, rate-limited, retried GET /works with arbitrary parameters (used by enrich/openalex_meta)."""
+        return self._get_json(params)
+
     def works_by_arxiv_ids(self, arxiv_ids: list) -> list:
         """One request. Returns [{"arxiv_id", "openalex_id", "refs": [W-ids]}] for the papers OpenAlex knows."""
         if not arxiv_ids:

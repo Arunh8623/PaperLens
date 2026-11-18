@@ -205,6 +205,15 @@ tests/  scripts/  docs/
     python -m paperlens similar <id> --index <dir>              # "more like this"
     python -m paperlens key-papers --index <dir>                # highest PageRank
 
+## Publication info, citations, full-paper links, AI Quick read (Phase 8)
+
+    python -m paperlens enrich --index data\ixs --contact YOUR_EMAIL        # OpenAlex: who published it, how many cite it
+    $env:GEMINI_API_KEY = "your-key"                                         # free key from Google AI Studio
+    python -m paperlens serve-web --index data\ixs --contact YOUR_EMAIL
+
+Then use "published papers only" under *Filters and extras*, click a title to read the full paper, or click "Quick read".
+Details, limits and what is not verified: `docs/PHASE8.md`.
+
 
 ## Papers from many years (2015 to 2026)
 

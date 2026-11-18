@@ -1,0 +1,59 @@
+{
+ "date": "2026-11-10 10:32:01",
+ "data": "real vectors from ixs (10400 papers)",
+ "n": 10400,
+ "dim": 384,
+ "queries": 300,
+ "rows": [
+  {
+   "bits": 1,
+   "bytes_per_vec": 60,
+   "ratio_vs_float32": 0.0391,
+   "recall10_codes_only": 0.6757,
+   "recall10_rescored": 0.9973,
+   "pool": 100,
+   "encode_seconds": 0.13,
+   "ms_per_query_incl_exact_ground_truth": 83.4,
+   "nfr7_pass": true
+  },
+  {
+   "bits": 2,
+   "bytes_per_vec": 108,
+   "ratio_vs_float32": 0.0703,
+   "recall10_codes_only": 0.79,
+   "recall10_rescored": 1.0,
+   "pool": 100,
+   "encode_seconds": 0.25,
+   "ms_per_query_incl_exact_ground_truth": 152.9,
+   "nfr7_pass": true
+  },
+  {
+   "bits": 3,
+   "bytes_per_vec": 156,
+   "ratio_vs_float32": 0.1016,
+   "recall10_codes_only": 0.8877,
+   "recall10_rescored": 1.0,
+   "pool": 100,
+   "encode_seconds": 0.2,
+   "ms_per_query_incl_exact_ground_truth": 152.2,
+   "nfr7_pass": true
+  },
+  {
+   "bits": 4,
+   "bytes_per_vec": 204,
+   "ratio_vs_float32": 0.1328,
+   "recall10_codes_only": 0.9367,
+   "recall10_rescored": 1.0,
+   "pool": 100,
+   "encode_seconds": 0.22,
+   "ms_per_query_incl_exact_ground_truth": 170.4,
+   "nfr7_pass": false
+  }
+ ],
+ "python": "3.14.3",
+ "platform": "Windows-11-10.0.26300-SP0",
+ "numpy": "2.5.4",
+ "float16_copy_bytes_per_vec": 768,
+ "disk_note": "disk per vector = code bytes + float16 copy (the copy is kept for rescoring); codes save memory and scan time, not disk",
+ "note": "real vectors from an index"
+}

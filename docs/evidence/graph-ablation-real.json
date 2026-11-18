@@ -1,0 +1,74 @@
+{
+ "data": "real: data\\my_queries.jsonl",
+ "queries": 1,
+ "base": {
+  "ndcg@10": 0.0,
+  "recall@100": 0.0,
+  "mrr@10": 0.0,
+  "queries": 1
+ },
+ "settings": {
+  "graph(seeds=3,weight=0.5)": {
+   "ndcg@10": 0.0,
+   "recall@100": 0.0,
+   "mrr@10": 0.0,
+   "queries": 1
+  },
+  "graph(seeds=3,weight=1.0)": {
+   "ndcg@10": 0.0,
+   "recall@100": 0.0,
+   "mrr@10": 0.0,
+   "queries": 1
+  },
+  "graph(seeds=3,weight=2.0)": {
+   "ndcg@10": 0.0,
+   "recall@100": 0.0,
+   "mrr@10": 0.0,
+   "queries": 1
+  },
+  "graph(seeds=5,weight=0.5)": {
+   "ndcg@10": 0.0,
+   "recall@100": 0.0,
+   "mrr@10": 0.0,
+   "queries": 1
+  },
+  "graph(seeds=5,weight=1.0)": {
+   "ndcg@10": 0.0,
+   "recall@100": 0.0,
+   "mrr@10": 0.0,
+   "queries": 1
+  },
+  "graph(seeds=5,weight=2.0)": {
+   "ndcg@10": 0.0,
+   "recall@100": 0.0,
+   "mrr@10": 0.0,
+   "queries": 1
+  },
+  "graph(seeds=10,weight=0.5)": {
+   "ndcg@10": 0.0,
+   "recall@100": 0.0,
+   "mrr@10": 0.0,
+   "queries": 1
+  },
+  "graph(seeds=10,weight=1.0)": {
+   "ndcg@10": 0.0,
+   "recall@100": 0.0,
+   "mrr@10": 0.0,
+   "queries": 1
+  },
+  "graph(seeds=10,weight=2.0)": {
+   "ndcg@10": 0.0,
+   "recall@100": 0.0,
+   "mrr@10": 0.0,
+   "queries": 1
+  }
+ },
+ "best_setting": "graph(seeds=3,weight=0.5)",
+ "best_ndcg10_gain": 0.0,
+ "verdict": "switch off",
+ "min_gain_required": 0.005,
+ "seconds": 0.11,
+ "python": "3.14.3",
+ "platform": "Windows-11-10.0.26300-SP0",
+ "date": "2026-11-10"
+}

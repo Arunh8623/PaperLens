@@ -25,12 +25,28 @@
   .filters { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
   #status { margin:16px 0 8px; color:var(--muted); font-size:.85rem; min-height:1.2em; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:10px 0; }
-  .card h3 { margin:0 0 2px; font-size:1.02rem; } .card h3 a { color:var(--fg); text-decoration:none; }
+  .card { display:grid; grid-template-columns: 1fr auto; column-gap:18px; }
+  .card .main { min-width:0; } .card .side { display:flex; flex-direction:column; gap:6px; align-items:flex-start; padding-top:2px; min-width:7.5em; }
+  .card .wide { grid-column: 1 / -1; }
+  @media (max-width: 640px) { .card { grid-template-columns: 1fr; } .card .side { flex-direction:row; flex-wrap:wrap; min-width:0; margin-top:8px; } }
+  .card h3 { margin:0 0 2px; font-size:1.02rem; } .card h3 a { color:var(--accent); text-decoration:none; } .card h3 a:hover { text-decoration:underline; }
+  .side a { font-size:.85rem; color:var(--accent); text-decoration:none; white-space:nowrap; } .side a:hover { text-decoration:underline; }
+  .tag { font-weight:600; font-size:.72rem; letter-spacing:.02em; color:var(--muted); margin-right:2px; }
+  .pub { font-size:.84rem; margin:2px 0; } .pub.pre { color:var(--muted); }
+  .badge { display:inline-block; font-size:.7rem; padding:0 7px; border-radius:999px; background:var(--chip); margin-right:6px; }
+  .badge.ok { background:#e2f1e4; color:#1f5a2a; } .badge.bad { background:#f6e0e0; color:#8a1f1f; }
+  @media (prefers-color-scheme: dark) { .badge.ok { background:#1f3a25; color:#9bd7a6; } .badge.bad { background:#3d2222; color:#e9a0a0; } }
+  button.quick { background:none; color:var(--accent); padding:0; font-size:.85rem; display:inline-flex; gap:4px; align-items:center; }
+  button.quick:hover { text-decoration:underline; }
+  .qr { margin-top:10px; padding:10px 12px; border-radius:8px; background:var(--chip); font-size:.9rem; }
+  .qr h4 { margin:8px 0 2px; font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .qr h4:first-child { margin-top:0; } .qr p { margin:0; }
+  .qr .foot { margin-top:10px; font-size:.75rem; color:var(--muted); }
   .meta { color:var(--muted); font-size:.82rem; }
   .abs { margin:6px 0; font-size:.92rem; }
   .why { margin:8px 0 0; padding:0; list-style:none; display:flex; flex-wrap:wrap; gap:6px; }
   .why li { background:var(--chip); border-radius:999px; padding:2px 10px; font-size:.78rem; }
-  .actions { margin-top:8px; display:flex; gap:14px; }
+  .actions { margin-top:8px; display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
   .err { color:var(--warn); }
   .dups { color:var(--muted); font-size:.82rem; }
 </style>
@@ -54,6 +70,7 @@
       <label>Category <input type="text" id="cat" placeholder="cs.DB" size="8"></label>
       <label>Year from <input type="number" id="yf" min="1990" max="2100"></label>
       <label>to <input type="number" id="yt" min="1990" max="2100"></label>
+      <label title="Only papers that were published in a journal or conference (needs the enrich step for best results)"><input type="checkbox" id="published"> published papers only</label>
       <label><input type="checkbox" id="graph"> use citations</label>
       <label><input type="checkbox" id="late"> word-by-word rerank</label>
       <label><input type="checkbox" id="dedupe" checked> hide near-duplicates</label>
@@ -74,6 +91,7 @@ function params() {
   if ($('graph').checked) p.set('graph', 'true');
   if ($('late').checked) p.set('late', 'true');
   if ($('dedupe').checked) p.set('dedupe', 'true');
+  if ($('published').checked) p.set('published', 'true');
   return p;
 }
 async function get(url) {
@@ -81,18 +99,56 @@ async function get(url) {
   if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch (e) {} throw new Error(m); }
   return r.json();
 }
+const idPath = id => encodeURIComponent(id).replace(/%2F/g, '/');
+function pubLine(pub) {
+  if (!pub) return '';
+  const retracted = pub.retracted ? '<span class="badge bad">Retracted</span>' : '';
+  if (pub.published) {
+    const where = pub.pub_info ? esc(pub.pub_info) : (pub.basis === 'arxiv-doi' ? 'DOI supplied by the authors on arXiv' : 'publisher version exists');
+    const doi = pub.doi ? ` · DOI <a href="${esc(pub.doi_url)}" target="_blank" rel="noopener">${esc(pub.doi)}</a>` : '';
+    return `<div class="pub">${retracted}<span class="badge ok">Published</span>${where}${doi}</div>`;
+  }
+  return `<div class="pub pre">${retracted}<span class="badge">Preprint</span>${pub.have_meta ? 'no published version found in OpenAlex' : 'publication status not checked'}</div>`;
+}
+function citedBy(pub) {
+  return pub && pub.cited_by != null ? `<span class="meta" title="Counted by OpenAlex; usually lower than Google Scholar">Cited by ${pub.cited_by.toLocaleString()} <span class="tag">(OpenAlex)</span></span>` : '';
+}
 function card(h) {
   const why = (h.why || []).map(w => `<li>${esc(w)}</li>`).join('');
-  return `<article class="card"><h3>${h.rank}. <a href="#" data-paper="${esc(h.arxiv_id)}">${esc(h.title)}</a></h3>
+  const L = h.links || {};
+  return `<article class="card" data-id="${esc(h.arxiv_id)}"><div class="main"><h3>${h.rank}. <a href="/paper/${idPath(h.arxiv_id)}" title="Open the full paper">${esc(h.title)}</a></h3>
     <div class="meta">${esc(h.arxiv_id)} · ${esc((h.categories || []).join(', '))} · ${esc(h.datestamp)} · ${esc((h.authors || []).join(', '))}</div>
+    ${pubLine(h.pub)}
     <div class="abs">${esc(h.abstract || '')}${(h.abstract || '').length >= 400 ? '…' : ''}</div>
     <ul class="why">${why}</ul>
-    <div class="actions"><button class="link" data-similar="${esc(h.arxiv_id)}">More like this</button></div></article>`;
+    <div class="actions">${citedBy(h.pub)}<button class="link" data-similar="${esc(h.arxiv_id)}">More like this</button></div></div>
+    <div class="side"><a href="${esc(L.pdf)}" target="_blank" rel="noopener"><span class="tag">[PDF]</span>arxiv.org</a>
+      <a href="${esc(L.html)}" target="_blank" rel="noopener" title="Best guess: very old or unusual papers may have no HTML version"><span class="tag">[HTML]</span>${(L.html || '').includes('ar5iv') ? 'ar5iv' : 'arxiv.org'}</a>
+      <button class="quick" data-quick="${esc(h.arxiv_id)}" title="AI summary of the paper (Gemini)"><span aria-hidden="true">✦</span> Quick read</button></div>
+    <div class="qr wide" hidden></div></article>`;
+}
+function renderQuick(r, el) {
+  const s = r.summary || {};
+  const rows = [['tldr', 'In short'], ['problem', 'Problem'], ['method', 'Method'], ['results', 'Results'], ['limitations', 'Limits']];
+  el.innerHTML = rows.filter(([k]) => s[k]).map(([k, t]) => `<h4>${t}</h4><p>${esc(s[k])}</p>`).join('') +
+    `<div class="foot">AI-generated by ${esc(r.model)} from ${r.source === 'pdf' ? 'the full PDF' : 'the abstract only (the PDF could not be fetched)'} · ${esc(r.generated)}${r.cached ? ' · saved copy' : ''}. It can make mistakes: check the paper.</div>`;
+}
+async function quickRead(id, el) {
+  el.hidden = false; el.textContent = 'Reading the paper with Gemini… the first time takes 10-60 seconds; later it is instant.';
+  try {
+    const r = await fetch('/api/quickread/' + idPath(id), {method: 'POST', headers: {'X-PaperLens': '1'}});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    renderQuick(j, el);
+  } catch (e) { el.innerHTML = `<span class="err">${esc(e.message)}</span>`; }
 }
 function show(r, label) {
   const dups = Object.keys(r.merged_duplicates || {}).length;
+  const pf = r.published_filter;
   $('status').textContent = `${r.hits.length} results ${label || ''} · ${r.took_ms} ms · snapshot generation ${r.generation}` +
-    (dups ? ` · ${dups} near-duplicate(s) hidden` : '');
+    (dups ? ` · ${dups} near-duplicate(s) hidden` : '') +
+    (pf ? ` · published only: kept from the top ${pf.considered} candidates` +
+      (pf.have_openalex_data ? '' : ' (no OpenAlex data loaded: only papers with an author-supplied DOI count; run `enrich`)') : '');
   $('out').innerHTML = r.hits.length ? r.hits.map(card).join('') : '<p class="meta">No results. Try fewer or different words.</p>';
 }
 async function run(fn) { $('status').textContent = 'Searching…'; try { await fn(); } catch (e) { $('status').innerHTML = `<span class="err">${esc(e.message)}</span>`; $('out').innerHTML = ''; } }
@@ -101,19 +157,19 @@ $('keybtn').addEventListener('click', () => run(async () => {
   if (!$('q').value.trim()) throw new Error('Type a query first.');
   const r = await get('/api/key?' + new URLSearchParams({q: $('q').value, k: 5}));
   $('status').textContent = `Key papers for this query · snapshot generation ${r.generation}`;
-  $('out').innerHTML = r.key.map((g, i) => `<article class="card"><h3>${i + 1}. ${esc(g.title)}</h3>
+  $('out').innerHTML = r.key.map((g, i) => `<article class="card" style="display:block"><h3>${i + 1}. <a href="/paper/${idPath(g.arxiv_id)}">${esc(g.title)}</a></h3>
     <div class="meta">${esc(g.arxiv_id)} · cited by ${g.cited_by_results} other results · PageRank ${g.pagerank.toFixed(5)}</div>
     <ul class="why"><li>Central in the citation graph among this query's results</li></ul></article>`).join('');
 }));
 $('out').addEventListener('click', e => {
-  const sim = e.target.closest('[data-similar]'), pap = e.target.closest('[data-paper]');
+  const sim = e.target.closest('[data-similar]'), qk = e.target.closest('[data-quick]');
+  if (qk) { const el = qk.closest('.card').querySelector('.qr'); if (el.hidden || el.querySelector('.err')) quickRead(qk.dataset.quick, el); else el.hidden = true; return; }
   if (sim) { e.preventDefault(); run(async () => show(await get('/api/similar/' + encodeURIComponent(sim.dataset.similar).replace(/%2F/g, '/')), `similar to ${sim.dataset.similar}`)); }
-  if (pap) { e.preventDefault(); run(async () => {
-    const r = await get('/api/paper/' + encodeURIComponent(pap.dataset.paper).replace(/%2F/g, '/'));
-    const p = r.paper; $('status').textContent = `Paper ${p.arxiv_id} · snapshot generation ${r.generation}`;
-    $('out').innerHTML = `<article class="card"><h3>${esc(p.title)}</h3><div class="meta">${esc((p.authors || []).join(', '))} · ${esc((p.categories || []).join(', '))} · ${esc(p.created || '')}${p.doi ? ' · doi ' + esc(p.doi) : ''}</div><p class="abs">${esc(p.abstract)}</p><div class="actions"><button class="link" data-similar="${esc(p.arxiv_id)}">More like this</button></div></article>`; }); }
 });
-fetch('/api/health').then(r => r.json()).then(h => { $('status').textContent = `Ready · snapshot generation ${h.generation}`; }).catch(() => {});
+Promise.all([fetch('/api/health').then(r => r.json()), fetch('/api/features').then(r => r.json())]).then(([h, f]) => {
+  $('status').textContent = `Ready · snapshot generation ${h.generation} · publication/citation data for ${f.publication_data_papers} papers` +
+    (f.publication_data_papers ? '' : ' (run `enrich` to add it)') + ` · Quick read ${f.quickread ? 'on (' + f.quickread_model + ')' : 'off (no GEMINI_API_KEY)'}`;
+}).catch(() => {});
 </script>
 </body>
 </html>

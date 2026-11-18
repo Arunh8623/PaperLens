@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 
-import crashlib as cl
+from tests import crashlib as cl
 from paperlens.contracts.paper import read_jsonl
 from paperlens.harvest.fake_oai_server import FakeOAIServer
 from paperlens.synth import generate_papers
